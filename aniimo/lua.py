@@ -1,5 +1,6 @@
 # Read-only LuaJIT (GC64) heap access: interned strings, table nodes and table contents
 import struct
+import threading
 import time
 
 GCSTR_SIZE = 0x18          # GCstr header, characters follow
@@ -141,12 +142,14 @@ class Located:
     def __init__(self, locate, valid, max_age=300):
         self.locate, self.valid, self.max_age = locate, valid, max_age
         self.found, self.pid, self.at = None, None, 0.0
+        self.lock = threading.Lock()   # several reader threads share some (pg): search once, not once each
 
     def get(self, proc):
-        fresh = self.found is not None and self.pid == proc.pid and time.time() - self.at < self.max_age
-        if not fresh or not self.valid(proc, self.found):
-            self.found, self.pid, self.at = self.locate(proc), proc.pid, time.time()
-        return self.found
+        with self.lock:
+            fresh = self.found is not None and self.pid == proc.pid and time.time() - self.at < self.max_age
+            if not fresh or not self.valid(proc, self.found):
+                self.found, self.pid, self.at = self.locate(proc), proc.pid, time.time()
+            return self.found
 
 
 def tables_with_key(proc, gcstrs):

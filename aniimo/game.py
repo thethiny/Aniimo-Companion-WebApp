@@ -2,16 +2,20 @@
 # the minimap's own map position (for calibration) and the route the game is guiding along.
 # Everything is resolved by name at attach time, so offsets survive game updates.
 #
-# Two threads:
-#   fast (10 Hz)  reads the pose of the already-found player, the minimap and nothing else
-#   slow (1 Hz)   everything that scans memory: attach, (re)finding the player, scene, route, minimap
-# so a scan never stalls position updates.
+# Threads, so a scan never stalls the live readings:
+#   fast (10 Hz)   reads the pose of the already-found player, the minimap and nothing else
+#   scene (1 Hz)   the map you're on, from the game's Lua map system (pg.game.map.sceneId), which also
+#                  follows the maps you walk into without a loading screen
+#   slow (1 Hz)    everything that scans memory: attach, (re)finding the player, route, the minimap loaders
+#                  (the scene's fallback while the Lua map system isn't found yet)
+#   minimap        the search for the minimap, which takes minutes where there's none to find
 import logging
 import math
 import struct
 import threading
 import time
 
+from . import pg
 from .memory import Il2Cpp, Process, find_pid, is_pointer
 from .minimap import MinimapReader
 from .route import RouteReader
@@ -60,12 +64,15 @@ class GameReader:
         self._prev_pair = None
         self._map_live = False
         self._last_scene_check = self._last_minimap_locate = self._last_refind = -1e9
+        self._minimap_search = None
+        self._lua_scene_ok = False
 
     # ---- lifecycle ----
 
     def start(self):
         threading.Thread(target=self._fast_loop, name="GameReader.fast", daemon=True).start()
         threading.Thread(target=self._slow_loop, name="GameReader.slow", daemon=True).start()
+        threading.Thread(target=self._scene_loop, name="GameReader.scene", daemon=True).start()
         lanes = {}
         for collector in self.collectors:
             lanes.setdefault(collector[4] if len(collector) > 4 else DEFAULT_LANE, []).append(collector[:4])
@@ -119,14 +126,11 @@ class GameReader:
                 now = time.time()
                 if self.need_player:
                     self._find_player()
-                if self.need_scene or now - self._last_scene_check >= SCENE_RECHECK_SECONDS:
+                if not self._lua_scene_ok and (self.need_scene or now - self._last_scene_check >= SCENE_RECHECK_SECONDS):
                     self._check_scene()
                 self.route = self.route_reader.read(now) if self.route_reader else None
                 if not (self.minimap and self.minimap.located()) and now - self._last_minimap_locate >= MINIMAP_LOCATE_SECONDS:
-                    self._last_minimap_locate = now
-                    minimap = MinimapReader(self.proc)
-                    self.minimap = minimap if minimap.locate() else None
-                    log.info("minimap %s", "found" if self.minimap else "not found yet")
+                    self._locate_minimap()
             except Exception as e:
                 log.exception("slow loop")
                 self._set(status="error", message=f"{type(e).__name__}: {e}")
@@ -187,6 +191,41 @@ class GameReader:
         self.need_player = False
         self._last_ok = self._last_moved = self._map_last_moved = time.time()
         log.info("player entity %#x (%d candidate(s))", self.entity, len(found))
+
+    def _locate_minimap(self):
+        """Searches for the minimap on a thread of its own: the search takes minutes on maps where the
+        minimap can't be found (Whisperwake Isles), and must not hold up the scene and route checks."""
+        if self._minimap_search and self._minimap_search.is_alive():
+            return
+
+        def search(proc):
+            minimap = MinimapReader(proc)
+            self.minimap = minimap if minimap.locate() else None
+            self._last_minimap_locate = time.time()
+            log.info("minimap %s", "found" if self.minimap else "not found yet")
+
+        self._minimap_search = threading.Thread(target=search, args=(self.proc,), name="GameReader.minimap", daemon=True)
+        self._minimap_search.start()
+
+    def _scene_loop(self):
+        while not self._stop.is_set():
+            try:
+                self._lua_scene_ok = bool(self.proc and self.proc.alive() and self._lua_scene())
+            except Exception:
+                log.exception("scene loop")
+                self._lua_scene_ok = False
+            self._stop.wait(SLOW_SECONDS)
+
+    def _lua_scene(self):
+        """Takes the scene from the game's map system; False while that can't be read."""
+        scene_id = pg.scene(self.proc)
+        if not scene_id:
+            return False
+        if not self.scene or self.scene["mapId"] != str(scene_id):
+            log.info("scene %s", scene_id)
+            self.scene = {"id": scene_id, "mapId": str(scene_id)}
+        self.need_scene = False
+        return True
 
     def _check_scene(self, candidates=None):
         self._last_scene_check = time.time()

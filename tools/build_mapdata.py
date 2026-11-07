@@ -33,6 +33,8 @@ OFFICIAL_SERVERS = 2       # open_server_time_data row of the live servers (1 is
 DAILY_ACTIVITY = 10000024  # event activity id of Daily Activity
 SKILL_POINT = 1000         # Report Card: the Skill Point talents are learned with
 TALENT_TREES = {1: "active", 2: "passive"}   # player_skill_tree_data abilityType of the two talent tabs
+QUEST_TABS = {1: "lore", 2: "quests", 3: "journey"}   # quest_catalog mainType of the HUD's quest tabs
+RANK_NUMERALS = ("I", "II", "III")
 DAILY_TASK, DAILY_CHEST = 121, 122   # event_task_data actTaskType: a task, a reward chest along the bar
 
 
@@ -214,7 +216,12 @@ def build_quests(pm, text):
     icons = pm.table("quest_task_type")
     for quest, info in names.items():
         info["icon"] = icon_name((icons.get(quest) or {}).get("mapMarkPoint"))   # the HUD's quest icon
-    return {"names": names, "steps": steps}
+    tab_icons = {}
+    for _, row in sorted(pm.table("quest_catalog").items()):   # each tab's own icon, for when it tracks nothing
+        tab = QUEST_TABS.get(row.get("mainType"))
+        if tab and tab not in tab_icons:
+            tab_icons[tab] = icon_name(row.get("mapMarkPoint"))
+    return {"names": names, "steps": steps, "tabIcons": tab_icons}
 
 
 def build_talents(pm, text):
@@ -230,6 +237,16 @@ def build_talents(pm, text):
             talents[talent] = {"tab": tab, "costs": costs}
     return {"point": SKILL_POINT, "pointName": text_of(text, item.get("itemName")), "pointIcon": icon_name(item.get("icon")),
             "talents": talents}
+
+
+def build_ranks(pm, text):
+    """{star title: {name, icon}}: your rank as the game writes it ("Trailblazer I") and its small badge."""
+    ranks = {}
+    for title, row in pm.table("player_title_data").items():
+        first, last = text_of(text, row.get("nameFirst")), text_of(text, row.get("nameLast"))
+        name = f"{last} {first}" if first in RANK_NUMERALS else " ".join(filter(None, (first, last)))
+        ranks[title] = {"name": name, "icon": icon_name(row.get("iconSmall"))}
+    return ranks
 
 
 def build_profile(pm, text):
@@ -249,7 +266,7 @@ def build_profile(pm, text):
             "serverDayStart": servers.get("time", {}),
             "daily": build_daily_activity(pm, text), "eggs": build_eggs(pm, text),
             "branches": build_branches(pm, text), "quests": build_quests(pm, text),
-            "talents": build_talents(pm, text)}
+            "talents": build_talents(pm, text), "ranks": build_ranks(pm, text)}
 
 
 def main():

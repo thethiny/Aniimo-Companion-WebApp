@@ -3,6 +3,10 @@
 #   pg.me.__Properties__   your live property table (name, level, handbook, Primegy, ...). Teleports and
 #                          loading screens rebuild it, but pg.me always points at the current one
 #   pg.timePeriod          time of day (1 Morning, 2 Day, 3 Dusk, 4 Night)
+#   pg.game.map.sceneId    the map you're on (3000 Idyll, 3003 Whisperwake Isles, 501 Astra, ...), also for
+#                          the ones you walk into without a loading screen. Seamless sub-areas of a map
+#                          (3003001, 5010001: scene_seamless_data) have no map of their own: mainSceneId
+#                          names the map they belong to
 from . import lua
 
 MARK_KEY = "getLocalizationTimeYMD"   # a function only pg has: few tables to check, unlike "timePeriod"
@@ -32,6 +36,19 @@ def fields(proc):
     found = _where.get(proc)
     table = (lua.read_table(proc, found, depth=0) or {}) if found else {}
     return table if is_pg(table) else {}
+
+
+SUB_SCENE = 100000   # seamless sub-area ids are 7 digits (3003001); maps have up to 5 (3000, 501)
+
+
+def scene(proc):
+    """The id of the map you're on, or None."""
+    game = lua.read_table(proc, lua.table_ref(fields(proc).get("game")), depth=0) or {}
+    system = lua.read_table(proc, lua.table_ref(game.get("map")), depth=0) or {}
+    scene_id, main = system.get("sceneId"), system.get("mainSceneId")
+    if isinstance(scene_id, float) and scene_id >= SUB_SCENE and isinstance(main, float) and main > 0:
+        scene_id = main
+    return int(scene_id) if isinstance(scene_id, float) and scene_id > 0 else None
 
 
 def me(proc):

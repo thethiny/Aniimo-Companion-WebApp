@@ -16,7 +16,7 @@ from game import BUNDLES, MANIFESTS  # noqa: E402  (found through the running ga
 from pmdata import PmData
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web", "icons")
 ICON_FOLDERS = ("/Texture/Icon/Map_MarkPoint/", "/Texture/Image/Pet_head/", "/Texture/Icon/Weather/",
-                "/Texture/Icon/Player_head/", "/Texture/Image/Head_Frame/")
+                "/Texture/Icon/Player_head/", "/Texture/Image/Head_Frame/", "/Texture/Icon/Personal/")
 BUNDLE_PATTERNS = (r"^mres_xgui_texture_expng_", r"^ar_xgui_image_pet_he_", r"^mres_xgui_panel_expng_",
                    r"^mres_xgui_common_expng_", r"^ar_xgui_icon_item_i_")
 # Single sprites from the map's own atlases: the small moon the map adds to weather icons at night, the

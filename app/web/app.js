@@ -38,7 +38,8 @@ function showScene(scene) {
   const info = maps[id];
   if (!info) { $("world").textContent = id; return; }
   if (current) map.removeLayer(current.layer);
-  const layer = L.tileLayer(`tiles/${id}/{z}/{x}_{y}.webp`, {
+  // Some places are drawn on another map's image (Whisperwake Isles on Idyll's): info.tiles names it
+  const layer = L.tileLayer(`tiles/${info.tiles || id}/{z}/{x}_{y}.webp`, {
     tileSize: info.tileSize, minZoom: 0, maxNativeZoom: info.maxZoom, maxZoom: info.maxZoom + 2, noWrap: true,
     bounds: L.latLngBounds(map.unproject([0, info.height], info.maxZoom), map.unproject([info.width, 0], info.maxZoom)),
   });
@@ -125,9 +126,16 @@ function gameCoord(value) {
   return (metres < 0 ? "-" : "") + String(Math.abs(metres)).padStart(4, "0");
 }
 
+// Your position as the game writes it: counted from the world the scene is laid out in (Whisperwake Isles
+// has its own origin, placed next to Idyll)
+function gameCoords(pos) {
+  const [offsetX, offsetZ] = (maps[state.scene && state.scene.mapId] || {}).worldOffset || [0, 0];
+  return `${gameCoord(pos.x + offsetX)}, ${gameCoord(pos.z + offsetZ)}`;
+}
+
 $("copy").onclick = async () => {
   if (!state || !state.pos) return;
-  const text = `${gameCoord(state.pos.x)}, ${gameCoord(state.pos.z)}`;
+  const text = gameCoords(state.pos);
   try {
     await navigator.clipboard.writeText(text);
   } catch (e) {
@@ -167,9 +175,14 @@ function render() {
   }
   if (state.scene) showScene(state.scene);
   const { x, y, z } = state.pos;
-  $("coords").textContent = `${gameCoord(x)}, ${gameCoord(z)}`;
+  $("coords").textContent = gameCoords(state.pos);
   $("height").textContent = `Height ${y.toFixed(0)}`;
   if (!current) return;
+  if (state.scene && !maps[state.scene.mapId]) {   // an instance or event place the game has no map for
+    setStatus("No map for this place", false);
+    if (map.hasLayer(player)) map.removeLayer(player);
+    return;
+  }
   const auto = state.calibration && state.calibration.source === "auto";
   $("calibrate").style.display = auto ? "none" : "";
   if (!calibrated()) {
@@ -179,7 +192,8 @@ function render() {
     if (map.hasLayer(player)) map.removeLayer(player);
     return;
   }
-  setStatus(auto ? "Live" : "Live (manual calibration)", true);
+  const source = state.calibration.source;
+  setStatus(source === "manual" ? "Live (manual calibration)" : source === "config" ? "Live (game map data)" : "Live", true);
   if (marksWaitingForPosition && !markData.fit) drawMarks();   // marks placed by the calibration
   const [px, py] = worldToPixel(x, z);
   renderLocation(px, py);
@@ -811,6 +825,12 @@ function renderProfile() {
   setIcon($("profile-frame"), (profile.headFrames || {})[account.headFrame]);
   $("profile-name").textContent = account.name;
   $("profile-level").textContent = account.level ? `Lv. ${account.level}` : "";
+  const rank = (profile.ranks || {})[account.rank];
+  $("profile-rank").classList.toggle("hidden", !rank);
+  if (rank) {
+    setIcon($("rank-icon"), rank.icon);
+    $("rank-name").textContent = rank.name;
+  }
   const needed = (profile.levelExp || {})[account.level + 1];   // a level's row holds the XP to reach it
   const showExp = needed && account.exp != null;
   $("profile-exp").textContent = showExp ? `${account.exp.toLocaleString()} / ${needed.toLocaleString()} XP` : "";
@@ -973,7 +993,11 @@ function renderQuests() {
   if (!tracked) return;
   setHtml($("quests-card"), QUEST_TABS.map(([tab, label]) => {
     const quest = tracked[tab];
-    if (!quest) return `<div class="quest none ${tab}"><div class="quest-head"><b>${label}: not tracking</b></div></div>`;
+    if (!quest) {
+      const icon = (info.tabIcons || {})[tab];
+      return `<div class="quest none ${tab}"><div class="quest-head">${icon ? `<img src="icons/${icon}" alt="">` : ""}`
+        + `<b>${label}: not tracking</b></div></div>`;
+    }
     const name = (info.names || {})[quest] || {};
     return `<div class="quest ${tab} ${openQuests.has(tab) ? "open" : ""}" data-tab="${tab}">`
       + `<button class="quest-head" title="${label}">${name.icon ? `<img src="icons/${name.icon}" alt="">` : ""}`

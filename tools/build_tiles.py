@@ -13,6 +13,7 @@ import UnityPy
 from PIL import Image, ImageFilter
 
 from game import BUNDLES  # noqa: E402  (found through the running game)
+from pmdata import PmData, Text
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web")
 TILE = 256
 OCEAN = (21, 63, 99)
@@ -21,8 +22,8 @@ REGION_MIN_AREA = 0.01   # ignore islands smaller than 1% of the map
 REGION_PAD = 0.04        # padding around a landmass, as a fraction of its size
 # Detailed minimap tiles first; the coarse map tiles fill any gaps
 SOURCES = [("MapMini", r"xgui_mini_(\d+)_"), ("Map", r"xgui_texture_(\d+)_")]
-NAMES = {"3000": "Idyll", "501": "Astra"}
 TILE_NAME = re.compile(r"UI_Img_(MapMini|Map)_(\d+)_(\d+)_(\d+)$")
+OVERLAY_PAD = 300   # map pixels around an overlay scene's marks for its Fit view
 # Area masks: red = round(small-area index * 4.25), green = 255 inside an area (low on borders)
 AREA_BUNDLE, AREA_NAME = r"xgui_tex2k_map_", re.compile(r"UI_Img_MapArea_(\d+)_(\d+)_(\d+)$")
 AREA_STEP = 255 / 60
@@ -169,7 +170,42 @@ def write_pyramid(scene, image):
     return max_zoom
 
 
+def scene_info():
+    """{scene: {"name", "points", "offset"}} from scene_data: the name the game shows ("Idyll", "Whisperwake
+    Isles", "Astra", ...), two world points with their map positions (map units, y pointing up) and where
+    the scene sits in the world it's drawn on (wholemapOffset: Whisperwake Isles is a scene of its own with
+    its own origin, laid out next to Idyll; the game's coordinates are the position plus this offset)."""
+    text, info = Text(), {}
+    for scene, row in PmData().table("scene_data", depth=2).items():
+        keys = ("PointAPositon", "MapAPosition", "PointBPosition", "MapBPosition")
+        points = [[row[k][1], row[k][2]] for k in keys if isinstance(row.get(k), dict)]
+        offset = row.get("wholemapOffset") or {}
+        overlays = row.get("mapDisplayOverlayScenes") or {}
+        info[str(scene)] = {"name": text.get(row.get("sceneName")), "points": points if len(points) == 4 else None,
+                            "offset": [offset.get(1, 0), offset.get(3, 0)],
+                            "overlays": [str(s) for s in overlays.values()]}
+    return info
+
+
+def config_calibration(points, width, offset=(0, 0)):
+    """{"x": [s, o], "z": [s, o]} position -> map pixel from the scene's two reference points and its world
+    offset, or None. Map units are image pixels, except on maps the game ships smaller than their units:
+    those are scaled down by the power of two that fits (Whisperwake Isles: Idyll's 9216-unit frame in a
+    2048 px image, a quarter)."""
+    if not points:
+        return None
+    (ax, az), (max_, maz), (bx, bz), (mbx, mbz) = points
+    if ax == bx or az == bz:
+        return None
+    span = max(abs(max_), abs(mbx))
+    k = 1.0 if span <= width else 2.0 ** round(math.log2(width / span))
+    sx, sz = (mbx - max_) / (bx - ax) * k, -(mbz - maz) / (bz - az) * k
+    ox, oz = max_ * k - sx * ax, -maz * k - sz * az
+    return {"x": [sx, ox + sx * offset[0]], "z": [sz, oz + sz * offset[1]]}
+
+
 def main():
+    scenes = scene_info()
     regions_only = "--regions-only" in sys.argv   # recompute landmasses, keep existing tiles
     wanted = {a for a in sys.argv[1:] if not a.startswith("--")}
     maps_path = os.path.join(WEB, "maps.json")
@@ -184,14 +220,47 @@ def main():
         else:
             max_zoom = write_pyramid(scene, image)
         regions = find_regions(image)
-        maps[scene] = {"name": NAMES.get(scene, f"Map {scene}"), "width": image.width, "height": image.height,
-                       "maxZoom": max_zoom, "tileSize": TILE, "regions": regions}
+        info = scenes.get(scene) or {}
+        maps[scene] = {"name": info.get("name") or f"Map {scene}", "width": image.width, "height": image.height,
+                       "maxZoom": max_zoom, "tileSize": TILE, "regions": regions,
+                       "calibration": config_calibration(info.get("points"), image.width, info.get("offset")),
+                       "worldOffset": info.get("offset")}
         if scene in area_masks:
             mask = compose_area_mask(area_masks[scene])
             maps[scene]["areaGrid"] = write_area_grid(scene, mask, image.width, image.height)
             maps[scene]["areaBorders"] = write_area_borders(scene, mask)
         print(f"{scene}: {image.width}x{image.height}, zoom 0-{max_zoom}, regions {regions}")
+    add_overlays(maps, scenes)
     json.dump(maps, open(maps_path, "w", encoding="utf-8"), indent=1)
+
+
+def add_overlays(maps, scenes):
+    """Scenes the game draws on another map (its mapDisplayOverlayScenes: Whisperwake Isles on Idyll's, where
+    its isles are drawn in full detail; its own image is a low-resolution copy) show that map's tiles. Their
+    positions go through the parent's calibration after the scene's world offset, the same numbers the
+    game's own markers use there. Their Fit view frames their marks."""
+    mapdata = json.load(open(os.path.join(WEB, "mapdata.json"), encoding="utf-8"))
+    for parent_id, parent_info in scenes.items():
+        parent = maps.get(parent_id)
+        if not parent or parent.get("tiles") or not parent.get("calibration"):
+            continue
+        for scene in parent_info.get("overlays", []):
+            add_overlay(maps, scenes, mapdata, scene, parent_id)
+
+
+def add_overlay(maps, scenes, mapdata, scene, parent_id):
+    parent, info = maps[parent_id], scenes.get(scene) or {}
+    offset = info.get("offset") or [0, 0]
+    (sx, ox), (sz, oz) = parent["calibration"]["x"], parent["calibration"]["z"]
+    fit = {"x": [sx, ox + sx * offset[0]], "z": [sz, oz + sz * offset[1]]}
+    points = [(fit["x"][0] * m["world"][0] + fit["x"][1], fit["z"][0] * m["world"][1] + fit["z"][1])
+              for m in mapdata.get("scenes", {}).get(scene, {}).get("marks", []) if m.get("world")]
+    box = [round(min(p[0] for p in points)) - OVERLAY_PAD, round(min(p[1] for p in points)) - OVERLAY_PAD,
+           round(max(p[0] for p in points)) + OVERLAY_PAD, round(max(p[1] for p in points)) + OVERLAY_PAD] if points else None
+    maps[scene] = {"name": info.get("name") or f"Map {scene}", "tiles": parent_id,
+                   **{k: parent[k] for k in ("width", "height", "maxZoom", "tileSize")},
+                   "regions": [box] if box else parent.get("regions", []),
+                   "calibration": fit, "worldOffset": info.get("offset")}
 
 
 if __name__ == "__main__":

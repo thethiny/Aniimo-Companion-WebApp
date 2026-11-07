@@ -1,5 +1,6 @@
 # Your player profile, read-only from your live property table (handbook.live_player):
 #   playerName, level, exp                     exp counts toward the next level (player_level_data needExp)
+#   starTitle                                  your rank ("Trailblazer I", player_title_data)
 #   headIcon / headFrame                       picture and frame ids (player_head_icon_data / _frame_data)
 #   serverArea                                 which server region you play on (open_server_time_data)
 #   lastDayUpdateTs, lastWeekUpdateTs          when the server last ran its daily / weekly reset
@@ -64,7 +65,7 @@ def _eggs(proc, player):
 
 
 def collect(proc):
-    """{"name", "level", "exp", "headIcon", "headFrame", "serverArea", "dayReset", "weekReset",
+    """{"name", "level", "exp", "rank", "headIcon", "headFrame", "serverArea", "dayReset", "weekReset",
         "primegy": {"value", "max", "nextAt"}, "daily": {"score", "tasks"}, "eggs": [...], "branches": {...},
         "talents": {talent id: level}, "money": {item id: count}}; times are Unix seconds"""
     player = handbook.live_player(proc)
@@ -74,6 +75,7 @@ def collect(proc):
     value, limit = _energy(proc, player, "commonEnergyNums"), _energy(proc, player, "energyAutoLimit")
     money = lua.synced_fields(proc, lua.table_ref(player.get("commonMoneyNums")))
     return {"name": name, "level": _int(player.get("level")), "exp": _int(player.get("exp")),
+            "rank": _int(player.get("starTitle")),
             "headIcon": _int(player.get("headIcon")), "headFrame": _int(player.get("headFrame")),
             "serverArea": _int(player.get("serverArea")),
             "dayReset": _number(player.get("lastDayUpdateTs")), "weekReset": _number(player.get("lastWeekUpdateTs")),

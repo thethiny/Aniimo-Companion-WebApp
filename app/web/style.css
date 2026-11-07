@@ -57,6 +57,9 @@ button.on { background: var(--accent); color: #1b1300; border-color: var(--accen
 #profile-name { font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .profile-level { display: flex; justify-content: space-between; font-size: 14px; color: #c9d1dd; font-variant-numeric: tabular-nums; }
 #profile-exp { font-size: 11px; color: #9aa3b4; }
+.profile-rank { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: #ffd98a; }
+.profile-rank img { width: 18px; height: 18px; object-fit: contain; }
+.profile-rank:empty, .profile-rank.hidden { display: none; }
 .exp-bar { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .16); overflow: hidden; }
 .exp-bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #6fb6ff, #9fe3ff); }
 /* Icon on the left spanning two lines; value and the next step on the first, the longer wait under it */
@@ -432,8 +435,9 @@ button.icon.done svg { stroke: var(--ok); }
 .quest-head::after { content: "\203A"; font-size: 18px; color: #9aa3b4; transition: transform .15s; }
 .quest.open .quest-head::after { transform: rotate(90deg); }
 .quest.none .quest-head { cursor: default; }
+.quest.none .quest-head img { opacity: .45; filter: grayscale(1); }
 .quest.none .quest-head::after { content: ""; }
-.quest.none b { font-weight: 400; color: #7d8494; }
+.quest.none .quest-head b { font-weight: 400; color: #7d8494; }   /* over the tab colours */
 .quest.lore b { color: #ffd34d; }
 .quest.quests b { color: #c9a8ff; }
 .quest.journey b { color: #bde05a; }

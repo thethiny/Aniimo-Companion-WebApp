@@ -1,6 +1,8 @@
 # World (x, z) -> map pixel calibration per scene.
 # Automatic: pairs of (world position, the minimap's own map-pixel position) are sampled while playing.
 # Manual: points the user clicks, used only for maps that have no automatic fit yet.
+# Config: the game's own two reference points per scene (maps.json, from scene_data), used until either
+# of those exists (maps without a readable minimap: Whisperwake Isles, Astra).
 # The game's maps are axis-aligned with one scale for both axes, so the fit is
 #   px = s * x + bx,   py = flip * s * z + bz
 import json
@@ -9,6 +11,7 @@ import os
 import threading
 
 PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "calibration.json")
+MAPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "maps.json")
 SAMPLE_SPACING = 25.0     # metres between kept automatic samples
 MAX_SAMPLES = 24
 OUTLIER_PX = 6.0          # a sample further than this from the fit is suspect
@@ -106,6 +109,14 @@ class Calibration:
             self.manual.pop(str(scene), None)
             self._save()
 
+    def _config(self, scene):
+        """The game's own world -> map fit for this scene (maps.json), or None."""
+        try:
+            maps = json.load(open(MAPS, encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return (maps.get(scene) or {}).get("calibration")
+
     def get(self, scene):
         """{source: auto|manual|None, points, x, z, error} for a scene."""
         scene = str(scene)
@@ -114,6 +125,8 @@ class Calibration:
             fit, source = self._fits.get(scene), "auto"
             if not fit:
                 fit, source = fit_uniform(points), "manual"
+        if not fit:
+            fit, source = self._config(scene), "config"
         fit = fit or {}
         return {"source": source if fit else None, "points": points,
                 "x": fit.get("x"), "z": fit.get("z"), "error": fit.get("error")}
