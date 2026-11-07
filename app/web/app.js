@@ -795,7 +795,7 @@ function openArea(blockId) {
   openAreaId = blockId;
   renderAreaPanel();
 }
-$("area-close").onclick = () => { openAreaId = null; renderAreaPanel(); };
+$("area-close").onclick = () => { openAreaId = null; selectedPet = null; renderAreaPanel(); };
 
 function renderAreaPanel() {
   const block = openAreaId && markData.blocks[openAreaId];
@@ -819,8 +819,43 @@ function renderAreaPanel() {
   });
   $("area-pets").innerHTML = honeycombHtml(honeycombRows(cells));
   for (const button of $("area-pets").querySelectorAll(".pet")) {
-    button.onclick = () => setTrack(button.dataset.proto);
+    button.onclick = () => { selectedPet = button.dataset.proto; setTrack(button.dataset.proto); };
+    button.onmouseenter = () => renderPetDetail(button.dataset.proto);
+    button.onmouseleave = () => renderPetDetail(selectedPet);
   }
+  renderPetDetail(selectedPet);
+}
+
+// ---- the card's bottom section: how to find the Aniimo you point at (or picked) ----
+let selectedPet = new URLSearchParams(location.search).get("pet");   // ?pet=1033301 preselects one
+const STATE_TEXT = { caught: "Caught here", seen: "Seen", unseen: "Not seen yet" };
+
+// The game's rich text: <sprite name="..."> icons, <color=#..> and <style=..> spans
+function richText(text) {
+  const escaped = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return escaped
+    .replace(/&lt;sprite name="([\w.]+)"&gt;/g, (_, name) => `<img class="inline-icon" src="icons/${name}.png" alt="">`)
+    .replace(/&lt;color=(#[0-9a-fA-F]{6,8})&gt;/g, '<span style="color:$1">')
+    .replace(/&lt;\/color&gt;/g, "</span>")
+    .replace(/&lt;style=[^&]*&gt;/g, "<b>")
+    .replace(/&lt;\/style&gt;/g, "</b>");
+}
+
+function renderPetDetail(proto) {
+  const detail = $("area-detail");
+  const pet = proto && (markData.pets || {})[proto];
+  if (!pet || !openAreaId) {
+    detail.innerHTML = '<p class="detail-hint">Point at an Aniimo to see how to find it.</p>';
+    return;
+  }
+  const state = petState(proto, openAreaId);
+  const lines = [];
+  if (pet.condition) lines.push(`<p class="detail-condition">${richText(pet.condition)}</p>`);
+  if (pet.find && pet.find !== pet.condition) lines.push(`<p class="detail-find">${richText(pet.find)}</p>`);
+  if (!lines.length) lines.push('<p class="detail-find">No special condition: it roams this area.</p>');
+  detail.innerHTML = `<div class="detail-head">${petIcon(proto, `detail-head-icon ${state}`)}`
+    + `<div><b>${pet.name || ""}</b><span>${pet.form || ""}</span></div>`
+    + `<em class="detail-state ${state}">${STATE_TEXT[state]}</em></div>${lines.join("")}`;
 }
 
 // The weather badge is solid while the area has that weather, faded otherwise

@@ -103,14 +103,16 @@ def block_info(row, text, regions):
 
 
 def build_pets(pm, text, wanted):
-    """{prototype id: {name, form, icon}} for the given Aniimo forms."""
+    """{prototype id: {name, form, icon, condition, find}} for the given Aniimo forms. condition is the
+    game's short find condition, find its longer when / where text (both in the game's rich text)."""
     protos = pm.table("pet_prototype_data", depth=0)
     forms = {form_id: text.get(row.get("name")) for form_id, row in pm.table("pet_form_type_data").items()}
     pets = {}
     for proto in sorted(wanted):
         row = protos.get(proto) or {}
         pets[proto] = {"name": text.get(row.get("name")), "form": forms.get(row.get("formId")),
-                       "icon": f"UI_PetHead_{row['iconName']}.png" if row.get("iconName") else None}
+                       "icon": f"UI_PetHead_{row['iconName']}.png" if row.get("iconName") else None,
+                       "condition": text_of(text, row.get("condition")), "find": text_of(text, row.get("weather1"))}
     return pets
 
 
