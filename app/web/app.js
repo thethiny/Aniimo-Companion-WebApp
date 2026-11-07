@@ -18,7 +18,7 @@ const arrow = L.divIcon({
   html: '<svg viewBox="0 0 34 34"><circle cx="17" cy="17" r="15" fill="rgba(255,211,77,.25)"/>'
       + '<path d="M17 4 L26 27 L17 22 L8 27 Z" fill="#ffd34d" stroke="#1b1300" stroke-width="1.5"/></svg>',
 });
-const player = L.marker([0, 0], { icon: arrow, interactive: false, keyboard: false });
+const player = L.marker([0, 0], { icon: arrow, interactive: false, keyboard: false, zIndexOffset: 10000 });   // above every mark
 
 // ---- map pixels <-> Leaflet ----
 const toLatLng = (px, py) => map.unproject([px, py], current.info.maxZoom);
@@ -35,6 +35,7 @@ const pixelToWorld = (px, py) => [(px - state.calibration.x[1]) / state.calibrat
 function showScene(scene) {
   const id = scene.mapId;
   if (current && current.id === id) return;
+  const keepFollowing = !!current && follow;   // moving to another map while following: keep following
   const info = maps[id];
   if (!info) { $("world").textContent = id; return; }
   if (current) map.removeLayer(current.layer);
@@ -51,6 +52,7 @@ function showScene(scene) {
   const startZoom = Number(new URLSearchParams(location.search).get("zoom"));   // ?zoom=4 to start there
   if (startZoom) map.setView(toLatLng(info.width / 2, info.height / 2), startZoom);
   else fitView();
+  if (keepFollowing) setFollow(true);
   $("world").textContent = info.name;
   loadAreas(id, info);
   loadMarks();

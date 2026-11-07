@@ -46,7 +46,8 @@ def _branches(proc, player):
     """{Branch id: {"infused": points, "level"}} for the Branches you've started; the unused Lumin Amber
     count comes with the money (keyed by the amber's item id)"""
     trees = lua.synced_children(proc, lua.table_ref(player.get("leylineTreeInfoMap")), 1)
-    return {tree: {"infused": _int(info.get("leylineTreePoint")), "level": _int(info.get("leylineTreeLevel"))}
+    # A Branch you haven't infused yet has no points stored: that's 0
+    return {tree: {"infused": _int(info.get("leylineTreePoint")) or 0, "level": _int(info.get("leylineTreeLevel")) or 0}
             for tree, info in trees.items()}
 
 

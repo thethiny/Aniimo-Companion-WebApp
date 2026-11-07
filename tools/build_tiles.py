@@ -12,6 +12,7 @@ import numpy as np
 import UnityPy
 from PIL import Image, ImageFilter
 
+from build_icons import bundle_priority
 from game import BUNDLES  # noqa: E402  (found through the running game)
 from pmdata import PmData, Text
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web")
@@ -20,10 +21,11 @@ OCEAN = (21, 63, 99)
 REGION_SCALE = 32        # landmass detection runs on a 1/32 thumbnail
 REGION_MIN_AREA = 0.01   # ignore islands smaller than 1% of the map
 REGION_PAD = 0.04        # padding around a landmass, as a fraction of its size
+NO_SEA = 0.8             # a "landmass" covering this much of the image means the map has no sea (Astra)
 # Detailed minimap tiles first; the coarse map tiles fill any gaps
 SOURCES = [("MapMini", r"xgui_mini_(\d+)_"), ("Map", r"xgui_texture_(\d+)_")]
 TILE_NAME = re.compile(r"UI_Img_(MapMini|Map)_(\d+)_(\d+)_(\d+)$")
-OVERLAY_PAD = 300   # map pixels around an overlay scene's marks for its Fit view
+MARKS_PAD = 300     # map pixels around a scene's marks when they frame its Fit view
 # Area masks: red = round(small-area index * 4.25), green = 255 inside an area (low on borders)
 AREA_BUNDLE, AREA_NAME = r"xgui_tex2k_map_", re.compile(r"UI_Img_MapArea_(\d+)_(\d+)_(\d+)$")
 AREA_STEP = 255 / 60
@@ -33,20 +35,29 @@ BORDER_COAST_GAP = 15    # seams this close (mask pixels) to the sea are the coa
 
 
 def load_tiles():
-    """{scene: {kind: {(col, row): Image}}}"""
-    found = defaultdict(lambda: defaultdict(dict))
+    """{scene: {kind: {(col, row): Image}}}. Most tiles are in each map's own bundles; some are in the shared
+    UI panel bundles and in the xpt<N> patches (newer art: the highest N wins). Those only complete maps
+    that have bundles of their own (the panels also hold small maps of places we don't draw)."""
+    ranked = defaultdict(lambda: defaultdict(dict))   # scene -> kind -> (col, row) -> (rank, Image)
+    own = set()
     for name in sorted(os.listdir(BUNDLES)):
-        if not any(re.search(p, name) for _, p in SOURCES):
+        dedicated = any(re.search(p, name) for _, p in SOURCES)
+        shared = bundle_priority(name)
+        if not dedicated and shared is None:
             continue
+        rank = shared or 0
         for obj in UnityPy.load(os.path.join(BUNDLES, name)).objects:
-            if obj.type.name != "Texture2D":
+            if obj.type.name != "Texture2D" or not TILE_NAME.match(obj.peek_name() or ""):
                 continue
             tex = obj.read()
-            m = TILE_NAME.match(tex.m_Name)
-            if m:
-                kind, scene, col, row = m[1], m[2], int(m[3]), int(m[4])
-                found[scene][kind][(col, row)] = tex.image.convert("RGB")
-    return found
+            kind, scene, col, row = TILE_NAME.match(tex.m_Name).groups()
+            if dedicated:
+                own.add(scene)
+            slot = ranked[scene][kind]
+            if (int(col), int(row)) not in slot or rank > slot[(int(col), int(row))][0]:
+                slot[(int(col), int(row))] = (rank, tex.image.convert("RGB"))
+    return {scene: {kind: {pos: image for pos, (_, image) in tiles.items()} for kind, tiles in kinds.items()}
+            for scene, kinds in ranked.items() if scene in own}
 
 
 def load_area_masks():
@@ -231,6 +242,7 @@ def main():
             maps[scene]["areaBorders"] = write_area_borders(scene, mask)
         print(f"{scene}: {image.width}x{image.height}, zoom 0-{max_zoom}, regions {regions}")
     add_overlays(maps, scenes)
+    frame_sealess(maps, json.load(open(os.path.join(WEB, "mapdata.json"), encoding="utf-8")))
     json.dump(maps, open(maps_path, "w", encoding="utf-8"), indent=1)
 
 
@@ -248,15 +260,35 @@ def add_overlays(maps, scenes):
             add_overlay(maps, scenes, mapdata, scene, parent_id)
 
 
+def marks_box(mapdata, scene, fit):
+    """[x0, y0, x1, y1] map pixels around the scene's marks (from mapdata) through `fit`, or None."""
+    points = [(fit["x"][0] * m["world"][0] + fit["x"][1], fit["z"][0] * m["world"][1] + fit["z"][1])
+              for m in mapdata.get("scenes", {}).get(scene, {}).get("marks", []) if m.get("world")]
+    if not (points and fit):
+        return None
+    return [round(min(p[0] for p in points)) - MARKS_PAD, round(min(p[1] for p in points)) - MARKS_PAD,
+            round(max(p[0] for p in points)) + MARKS_PAD, round(max(p[1] for p in points)) + MARKS_PAD]
+
+
+def frame_sealess(maps, mapdata):
+    """Maps without sea (one landmass over nearly the whole image: Astra) frame their Fit view on their marks."""
+    for scene, info in maps.items():
+        regions = info.get("regions") or []
+        if info.get("tiles") or len(regions) != 1 or not info.get("calibration"):
+            continue
+        x0, y0, x1, y1 = regions[0]
+        if (x1 - x0) * (y1 - y0) >= NO_SEA * info["width"] * info["height"]:
+            box = marks_box(mapdata, scene, info["calibration"])
+            if box:
+                info["regions"] = [[max(0, box[0]), max(0, box[1]), min(info["width"], box[2]), min(info["height"], box[3])]]
+
+
 def add_overlay(maps, scenes, mapdata, scene, parent_id):
     parent, info = maps[parent_id], scenes.get(scene) or {}
     offset = info.get("offset") or [0, 0]
     (sx, ox), (sz, oz) = parent["calibration"]["x"], parent["calibration"]["z"]
     fit = {"x": [sx, ox + sx * offset[0]], "z": [sz, oz + sz * offset[1]]}
-    points = [(fit["x"][0] * m["world"][0] + fit["x"][1], fit["z"][0] * m["world"][1] + fit["z"][1])
-              for m in mapdata.get("scenes", {}).get(scene, {}).get("marks", []) if m.get("world")]
-    box = [round(min(p[0] for p in points)) - OVERLAY_PAD, round(min(p[1] for p in points)) - OVERLAY_PAD,
-           round(max(p[0] for p in points)) + OVERLAY_PAD, round(max(p[1] for p in points)) + OVERLAY_PAD] if points else None
+    box = marks_box(mapdata, scene, fit)
     maps[scene] = {"name": info.get("name") or f"Map {scene}", "tiles": parent_id,
                    **{k: parent[k] for k in ("width", "height", "maxZoom", "tileSize")},
                    "regions": [box] if box else parent.get("regions", []),
