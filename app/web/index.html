@@ -41,20 +41,30 @@
 </section>
 
 <!-- Mark filters, like the game's map categories -->
-<section class="panel" id="filters">
+<!-- Mark filter, like the game's: search, groups with a round check, one button per mark type -->
+<section id="filters">
   <div class="filters-head">
-    <span>Markers</span>
-    <button id="filters-toggle" class="icon" title="Show or hide the filter list">
+    <span class="filters-title">Filter</span>
+    <button id="filters-all" class="text-button" title="Show every marker">All</button>
+    <button id="filters-none" class="text-button" title="Hide every marker">None</button>
+    <button id="filters-toggle" class="text-button" title="Show or hide the filter list">
       <svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
     </button>
   </div>
-  <div class="buttons filter-bulk">
-    <button id="filters-all">Select all</button>
-    <button id="filters-none">Deselect all</button>
+  <div class="filters-body">
+    <label class="filter-search">
+      <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20"/></svg>
+      <input id="filter-search" type="search" placeholder="Enter keywords to search" autocomplete="off">
+    </label>
+    <div id="filter-fixed"></div>
+    <div id="filter-list"></div>
+    <div class="filters-foot">
+      <label class="round-check" id="completed-toggle">
+        <input type="checkbox" id="show-completed"><i></i><span>Show Completed</span>
+      </label>
+      <button id="filters-reset" title="Reset the filter"><svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.05-4.95M19 4v4h-4"/></svg></button>
+    </div>
   </div>
-  <div id="filter-fixed"></div>
-  <div id="filter-list"></div>
-  <div class="muted" id="marks-info"></div>
 </section>
 
 <!-- Small area: completion and the Aniimo living there, like the game's area panel -->

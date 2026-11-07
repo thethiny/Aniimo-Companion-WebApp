@@ -1,5 +1,6 @@
 # Read-only LuaJIT (GC64) heap access: interned strings, table nodes and table contents
 import struct
+import time
 
 GCSTR_SIZE = 0x18          # GCstr header, characters follow
 GCSTR_LEN = 0x14
@@ -126,26 +127,19 @@ def synced_children(proc, address, min_key=0):
             if isinstance(key, int) and key >= min_key and table_ref(ref)}
 
 
-class Holder:
-    """A table found by a slow search (the table holding some key node), remembered while it still
-    passes `accept(fields)`. Lua tables don't move, so after the first search reads are instant."""
+class Located:
+    """Whatever a slow heap search finds (table addresses), reused while `valid(proc, found)` holds and for
+    at most `max_age` seconds, then searched again (the game can rebuild tables)."""
 
-    def __init__(self, accept, max_index=1024):
-        self.accept, self.max_index, self.address, self.pid = accept, max_index, None, None
+    def __init__(self, locate, valid, max_age=300):
+        self.locate, self.valid, self.max_age = locate, valid, max_age
+        self.found, self.pid, self.at = None, None, 0.0
 
-    def fields(self, proc, nodes):
-        """Depth-0 fields of the holding table, or {} if none of `nodes` sits in an accepted table."""
-        if self.address and self.pid == proc.pid:
-            fields = read_table(proc, self.address, depth=0) or {}
-            if self.accept(fields):
-                return fields
-        self.address = None
-        for table in set(owner_tables(proc, nodes, max_index=self.max_index).values()):
-            fields = read_table(proc, table, depth=0) or {}
-            if self.accept(fields):
-                self.address, self.pid = table, proc.pid
-                return fields
-        return {}
+    def get(self, proc):
+        fresh = self.found is not None and self.pid == proc.pid and time.time() - self.at < self.max_age
+        if not fresh or not self.valid(proc, self.found):
+            self.found, self.pid, self.at = self.locate(proc), proc.pid, time.time()
+        return self.found
 
 
 def tables_with_key(proc, gcstrs):

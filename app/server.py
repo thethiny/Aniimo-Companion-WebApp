@@ -20,13 +20,17 @@ from marks import MarkStore  # noqa: E402
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 COLLECT_SECONDS = 600   # names and marks appear in memory when the big map is opened; each pass scans for minutes
-LIVE_SECONDS = 60       # handbook (seen / caught, tracked Aniimo) and weather change while you play
+# Live reads run in their own lane (thread) so the minutes-long scans never hold them up; after a first
+# search they take well under a second
+LIVE_LANE = "live"
+HANDBOOK_SECONDS = 5    # seen / caught, tracked Aniimo, star title
+WEATHER_SECONDS = 15    # weather and time of day
 area_store = AreaStore()
 mark_store = MarkStore()
 live = {"handbook": LiveStore("handbook", "states"), "weather": LiveStore("weather", "weather")}
 reader = GameReader(collectors=[
-    ("handbook", LIVE_SECONDS, handbook.collect, live["handbook"].merge),
-    ("weather", LIVE_SECONDS, weather.collect, live["weather"].merge),
+    ("handbook", HANDBOOK_SECONDS, handbook.collect, live["handbook"].merge, LIVE_LANE),
+    ("weather", WEATHER_SECONDS, weather.collect, live["weather"].merge, LIVE_LANE),
     ("area names", COLLECT_SECONDS, areas.collect, area_store.merge),
     ("marks", COLLECT_SECONDS, marks.collect, lambda scene, found: mark_store.merge(found)),
 ])

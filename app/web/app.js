@@ -219,27 +219,9 @@ $("center").onclick = () => setFollow(true);
 map.on("dragstart", () => setFollow(false));
 
 // ---- fit: the landmass you're on (or the main one) fills the screen ----
-// Zooming out stops when the view is 125% of the landmasses (they fill 80% of the screen)
-const ZOOM_OUT_RATIO = 1.25;
-function landBounds() {
-  const regions = current.info.regions || [];
-  const box = regions.length
-    ? [Math.min(...regions.map((r) => r[0])), Math.min(...regions.map((r) => r[1])),
-      Math.max(...regions.map((r) => r[2])), Math.max(...regions.map((r) => r[3]))]
-    : [0, 0, current.info.width, current.info.height];
-  return L.latLngBounds(toLatLng(box[0], box[3]), toLatLng(box[2], box[1]));
-}
-
-function limitZoomOut() {
-  if (!current) return;
-  map.setMinZoom(Math.max(0, map.getBoundsZoom(landBounds()) - Math.log2(ZOOM_OUT_RATIO)));
-}
-map.on("resize", limitZoomOut);
-
-$("fit").onclick = () => fitView();
-
-function fitView() {
-  if (!current) return;
+// Fit: the landmass you're on (or the main one) fills the screen. Zooming out stops at that view
+const FIT_PADDING = [12, 12];
+function fitBounds() {
   const regions = current.info.regions || [];
   let box = [0, 0, current.info.width, current.info.height];
   if (regions.length) {
@@ -249,9 +231,23 @@ function fitView() {
       box = regions.find((r) => px >= r[0] && px <= r[2] && py >= r[1] && py <= r[3]) || box;
     }
   }
+  return L.latLngBounds(toLatLng(box[0], box[3]), toLatLng(box[2], box[1]));
+}
+
+function limitZoomOut() {
+  if (!current) return;
+  map.setMinZoom(map.getBoundsZoom(fitBounds(), false, L.point(FIT_PADDING).multiplyBy(2)));
+}
+map.on("resize", limitZoomOut);
+
+$("fit").onclick = () => fitView();
+
+function fitView() {
+  if (!current) return;
   setFollow(false);
-  map.fitBounds(L.latLngBounds(toLatLng(box[0], box[3]), toLatLng(box[2], box[1])), { padding: [12, 12] });
-};
+  limitZoomOut();
+  map.fitBounds(fitBounds(), { padding: FIT_PADDING });
+}
 
 // ---- route mirrored from the game's guide line ----
 const routeLine = L.polyline([], { color: "#4da3ff", weight: 5, opacity: 0.9, className: "route-line" }).addTo(map);
@@ -404,6 +400,7 @@ let markData = { marks: [], types: {}, groups: [], blocks: {}, areas: [] };
 let marksWaitingForPosition = false;   // some marks need the calibration, which isn't there yet
 const DEFAULT_HIDDEN = ["10506"];      // chests: hundreds of them, off until you ask for them
 let hiddenTypes = new Set(JSON.parse(localStorageGet("hiddenTypes") || JSON.stringify(DEFAULT_HIDDEN)));
+let showCompleted = localStorageGet("showCompleted") !== "false";   // like the game's "Show Completed", on by default
 
 function localStorageGet(key) {
   try { return localStorage.getItem(key); } catch (e) { return null; }
@@ -529,6 +526,7 @@ function drawMarks() {
   const counts = {};
   marksWaitingForPosition = false;
   for (const mark of markData.marks) {
+    if (!showCompleted && mark.status === STATUS_DONE) continue;
     const px = markPixel(mark);
     if (!px) { marksWaitingForPosition = true; continue; }
     const marker = L.marker(toLatLng(px[0], px[1]), { icon: markIcon(mark), keyboard: false });
@@ -548,14 +546,22 @@ function drawMarks() {
   updateMarkVisibility();
 }
 
-// ---- filters: the game's map filter groups, one checkbox per mark type ----
+// ---- filters: like the game's map filter, one toggle button per mark type in its group ----
 function swatch(icon) {
   return icon ? `<img src="icons/${icon}" alt="" onerror="this.outerHTML='${DOT}'">` : DOT;
 }
 
-function filterRow(key, label, icon, count, cls = "") {
-  return `<label class="filter ${cls}"><input type="checkbox" data-types="${key}">`
-    + `<span class="swatch">${swatch(icon)}</span><span>${label}</span><span class="count">${count}</span></label>`;
+// A type's button: icon and name, then the count in its own segment
+function filterButton(key, label, icon, count) {
+  return `<button class="filter-button" data-types="${key}" data-name="${label.toLowerCase()}">`
+    + `<span class="filter-main"><span class="swatch">${swatch(icon)}</span><span class="filter-name">${label}</span></span>`
+    + `<span class="filter-count">${count}</span></button>`;
+}
+
+// A group's heading: round check for the whole group, name, total
+function filterHeading(key, label, count) {
+  return `<label class="filter-heading round-check" data-types="${key}"><input type="checkbox" data-types="${key}"><i></i>`
+    + `<span>${label}</span><span class="filter-count">${count}</span></label>`;
 }
 
 // Types of a filter group present in this scene, in the game's order
@@ -575,30 +581,61 @@ function renderFilters(counts) {
     const ids = groupTypes(group, counts);
     if (!ids.length) continue;
     const total = ids.reduce((n, id) => n + counts[id], 0);
-    html += '<div class="filter-group">'
-      + filterRow(ids.join(","), group[1], null, total, "group-head")
-      + ids.map((id) => filterRow(id, markData.types[id].name, sample[id] || markData.types[id].icon, counts[id])).join("")
-      + "</div>";
+    html += '<div class="filter-group">' + filterHeading(ids.join(","), group[1], total) + '<div class="filter-grid">'
+      + ids.map((id) => filterButton(id, markData.types[id].name, sample[id] || markData.types[id].icon, counts[id])).join("")
+      + "</div></div>";
   }
-  $("filter-list").innerHTML = html;
+  $("filter-list").innerHTML = html || '<p class="filter-empty">No map data yet: run tools/build_mapdata.py.</p>';
   // Areas stay pinned above the scrolling list
-  $("filter-fixed").innerHTML = counts[AREAS] ? filterRow(AREAS, "Areas", null, counts[AREAS], "group-head") : "";
-  $("marks-info").textContent = markData.marks.length
-    ? "Open the map in game to refresh what you've completed."
-    : "No map data yet: run tools/build_mapdata.py.";
-  for (const box of filterBoxes()) {
+  $("filter-fixed").innerHTML = counts[AREAS] ? `<div class="filter-grid">${filterButton(AREAS, "Areas", null, counts[AREAS])}</div>` : "";
+  for (const box of $("filters").querySelectorAll(".filter-heading input")) {
     box.onchange = () => setTypesShown(box.dataset.types.split(","), box.checked);
   }
+  for (const button of $("filters").querySelectorAll(".filter-button")) {
+    button.onclick = () => setTypesShown([button.dataset.types], hiddenTypes.has(button.dataset.types));
+  }
   syncFilterBoxes();
+  applySearch();
 }
 
-// A group's box is checked when all its types are shown, half-checked when only some are
-function filterBoxes() {
-  return [...$("filter-fixed").querySelectorAll("input"), ...$("filter-list").querySelectorAll("input")];
+// Keyword search: keeps the matching buttons and the groups that still have some
+function applySearch() {
+  const words = $("filter-search").value.trim().toLowerCase();
+  for (const group of $("filter-list").querySelectorAll(".filter-group")) {
+    let any = false;
+    for (const button of group.querySelectorAll(".filter-button")) {
+      const match = !words || button.dataset.name.includes(words);
+      button.hidden = !match;
+      any = any || match;
+    }
+    group.hidden = !any;
+  }
 }
+$("filter-search").oninput = applySearch;
 
+$("show-completed").checked = showCompleted;
+$("show-completed").onchange = (e) => {
+  showCompleted = e.target.checked;
+  localStorageSet("showCompleted", String(showCompleted));
+  drawMarks();
+};
+
+$("filters-reset").onclick = () => {
+  hiddenTypes = new Set(DEFAULT_HIDDEN);
+  localStorageSet("hiddenTypes", JSON.stringify([...hiddenTypes]));
+  $("filter-search").value = "";
+  $("show-completed").checked = showCompleted = true;
+  localStorageSet("showCompleted", "true");
+  drawMarks();
+};
+
+// Buttons look pressed while their type is shown; a group's check is on when all its types are shown,
+// half-on when only some are
 function syncFilterBoxes() {
-  for (const box of filterBoxes()) {
+  for (const button of $("filters").querySelectorAll(".filter-button")) {
+    button.classList.toggle("on", !hiddenTypes.has(button.dataset.types));
+  }
+  for (const box of $("filters").querySelectorAll(".filter-heading input")) {
     const ids = box.dataset.types.split(",");
     const shown = ids.filter((id) => !hiddenTypes.has(id)).length;
     box.checked = shown === ids.length;
@@ -614,7 +651,7 @@ function setTypesShown(ids, shown) {
 }
 
 function setAllShown(shown) {
-  setTypesShown(filterBoxes().flatMap((b) => b.dataset.types.split(",")), shown);
+  setTypesShown([...$("filters").querySelectorAll(".filter-button")].map((b) => b.dataset.types), shown);
 }
 $("filters-all").onclick = () => setAllShown(true);
 $("filters-none").onclick = () => setAllShown(false);
@@ -640,7 +677,7 @@ $("filters-toggle").onclick = () => $("filters").classList.toggle("collapsed");
 
 // ---- Aniimo: area completion, who lives where (seen / caught), and tracking one like the game does ----
 const STATE_KNOWN = 1, STATE_CAUGHT = 2;     // handbook stateMask bits
-const HANDBOOK_POLL_MS = 30000;
+const HANDBOOK_POLL_MS = 5000;              // the server re-reads the handbook every 5 s
 const SPAWN_CELL = 40;                        // map pixels; spawn points are drawn as one square per cell
 const TIER_NAMES = ["bronze", "silver", "gold"];   // area completion tiers (thresholds per area, from the game)
 // Weather an Aniimo needs in an area: the badge on its portrait. Aurora stays a "?" until you've seen it.

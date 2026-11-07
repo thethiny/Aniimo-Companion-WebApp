@@ -34,12 +34,16 @@ TELEPORT_DISTANCE = 300.0     # a jump this big means a teleport or a scene chan
 SCENE_RECHECK_SECONDS = 60.0
 MINIMAP_LOCATE_SECONDS = 30.0
 MOVE_EPSILON = 0.3            # metres between polls that count as moving
+DEFAULT_LANE = "scan"         # collectors without a lane of their own
+COLLECT_TICK = 1.0            # seconds between checks for due collectors
+LOG_SLOWER_THAN = 3.0         # seconds; collections faster than this aren't logged
 
 
 class GameReader:
     def __init__(self, collectors=()):
-        # [(name, seconds, collect(proc) -> result, on_result(scene mapId, result))]: periodic heap
-        # collections (area names, marks) that run in their own thread because they take minutes
+        # [(name, seconds, collect(proc) -> result, on_result(scene mapId, result)[, lane])]: periodic heap
+        # collections. Each lane runs in its own thread, so quick live reads (handbook, weather) never wait
+        # behind scans that take minutes (area names, marks); collectors without a lane share "scan"
         self.collectors = list(collectors)
         self.lock = threading.Lock()
         self.state = {"status": "waiting", "message": "Waiting for Aniimo.exe"}
@@ -62,13 +66,16 @@ class GameReader:
     def start(self):
         threading.Thread(target=self._fast_loop, name="GameReader.fast", daemon=True).start()
         threading.Thread(target=self._slow_loop, name="GameReader.slow", daemon=True).start()
-        if self.collectors:
-            threading.Thread(target=self._collect_loop, name="GameReader.collect", daemon=True).start()
+        lanes = {}
+        for collector in self.collectors:
+            lanes.setdefault(collector[4] if len(collector) > 4 else DEFAULT_LANE, []).append(collector[:4])
+        for lane, collectors in lanes.items():
+            threading.Thread(target=self._collect_loop, args=(collectors,), name=f"GameReader.{lane}", daemon=True).start()
 
-    def _collect_loop(self):
-        last = {name: -1e9 for name, *_ in self.collectors}
+    def _collect_loop(self, collectors):
+        last = {name: -1e9 for name, *_ in collectors}
         while not self._stop.is_set():
-            for name, seconds, collect, on_result in self.collectors:
+            for name, seconds, collect, on_result in collectors:
                 proc, scene = self.proc, self.scene
                 if not proc or not scene or time.time() - last[name] < seconds:
                     continue
@@ -77,11 +84,13 @@ class GameReader:
                     started = time.time()
                     result = collect(proc)
                     on_result(scene["mapId"], result)
-                    log.info("collected %s in %.0f s: %s", name, time.time() - started,
-                             {k: len(v) for k, v in result.items() if isinstance(v, dict)})
+                    took = time.time() - started
+                    if took >= LOG_SLOWER_THAN:   # quick live reads run every few seconds: keep the log quiet
+                        log.info("collected %s in %.0f s: %s", name, took,
+                                 {k: len(v) for k, v in result.items() if isinstance(v, dict)})
                 except Exception as e:
                     log.warning("collect %s: %s", name, e)
-            self._stop.wait(5)
+            self._stop.wait(COLLECT_TICK)
 
     def stop(self):
         self._stop.set()

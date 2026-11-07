@@ -72,27 +72,84 @@ button.icon { flex: none; width: 26px; height: 26px; padding: 4px; border-radius
 button.icon svg { width: 100%; height: 100%; fill: none; stroke: var(--text); stroke-width: 2; }
 button.icon.done svg { stroke: var(--ok); }
 
-/* ---- mark filters (top-right) ---- */
-#filters { left: auto; right: 16px; width: 240px; padding: 10px 12px; display: flex; flex-direction: column; max-height: calc(100vh - 140px); }
-.filters-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
-#filter-list { margin-top: 2px; display: grid; gap: 2px; overflow-y: auto; min-height: 0; scrollbar-width: none; }
-#filter-list::-webkit-scrollbar { display: none; }
-#filter-fixed { margin-top: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+/* ---- mark filter (top-right), like the game's: light card, search, groups, toggle buttons ---- */
+#filters {
+  position: fixed; z-index: 1000; top: 16px; right: 16px; width: 344px; max-height: calc(100vh - 32px);
+  display: flex; flex-direction: column; padding: 12px 14px; border-radius: 14px; color: #2f3646;
+  background: linear-gradient(160deg, #eef0f5 0%, #e3e7ef 60%, #eceef3 100%); box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
+}
+.filters-head { display: flex; align-items: center; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid rgba(47, 54, 70, .12); }
+.filters-title { font-size: 24px; font-weight: 700; margin-right: auto; }
+.text-button {
+  flex: none; padding: 3px 8px; border: 0; border-radius: 6px; background: none; color: #66708a; font-size: 13px; font-weight: 600;
+}
+.text-button:hover { background: rgba(47, 54, 70, .08); }
+.text-button svg { width: 18px; height: 18px; display: block; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.filters-body { display: flex; flex-direction: column; min-height: 0; }
+#filters.collapsed .filters-body { display: none; }
+#filters.collapsed .filters-head { padding-bottom: 0; border-bottom: 0; }
+
+.filter-search {
+  display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; padding: 7px 12px; border-radius: 20px;
+  background: rgba(255, 255, 255, .7); border: 1px solid rgba(47, 54, 70, .1);
+}
+.filter-search svg { width: 18px; height: 18px; flex: none; fill: none; stroke: #8a91a2; stroke-width: 2.4; stroke-linecap: round; }
+.filter-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; color: #2f3646; }
+.filter-search input::placeholder { color: #9aa1b0; }
+
+#filter-fixed { padding: 6px 0 4px; }
 #filter-fixed:empty { display: none; }
-.filter-group { display: grid; gap: 1px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
-.filter-group .filter:not(.group-head) { padding-left: 18px; font-size: 13px; }
-.filter.group-head { font-weight: 600; }
-.filter.group-head .swatch { display: none; }
-#filters.collapsed #filter-list, #filters.collapsed #filter-fixed, #filters.collapsed #marks-info, #filters.collapsed .filter-bulk { display: none; }
-.filter-bulk { margin-top: 6px; }
-.filter-bulk button { padding: 3px 6px; font-size: 12px; }
-.filter { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 5px; cursor: pointer; user-select: none; }
-.filter:hover { background: rgba(255, 255, 255, .06); }
-.filter input { margin: 0; accent-color: var(--blue); }
-.filter .swatch { width: 18px; height: 18px; flex: none; display: flex; align-items: center; justify-content: center; }
-.filter .swatch img { max-width: 18px; max-height: 18px; }
-.filter .swatch i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #fff; background: var(--muted); }
-.filter .count { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+#filter-list { overflow-y: auto; min-height: 0; scrollbar-width: none; }
+#filter-list::-webkit-scrollbar { display: none; }
+.filter-group { margin-top: 8px; }
+.filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.filter-empty { color: #66708a; font-size: 13px; }
+
+/* Round check: grey dot when off, blue disc with a white tick when on, a dash when half on */
+.round-check { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.round-check input { position: absolute; opacity: 0; pointer-events: none; }
+.round-check i {
+  position: relative; flex: none; width: 18px; height: 18px; border-radius: 50%; background: #a3a9b6;
+  box-shadow: inset 0 0 0 4px #d9dde5;
+}
+.round-check input:checked + i, .round-check input:indeterminate + i { background: #3c86ea; box-shadow: none; }
+.round-check input:checked + i::after {
+  content: ""; position: absolute; left: 6px; top: 3px; width: 4px; height: 8px;
+  border: solid #fff; border-width: 0 2.2px 2.2px 0; transform: rotate(45deg);
+}
+.round-check input:indeterminate + i::after { content: ""; position: absolute; left: 4px; right: 4px; top: 8px; height: 2.2px; background: #fff; }
+
+.filter-heading {
+  padding: 2px 0 5px; margin-bottom: 7px; border-bottom: 1px solid rgba(47, 54, 70, .14); color: #66708a; font-size: 16px;
+}
+.filter-heading .filter-count { margin-left: auto; font-size: 13px; }
+
+/* Type button, segmented: icon + name, then the count. Pressed (blue) while the type is shown */
+.filter-button {
+  display: flex; align-items: stretch; min-width: 0; padding: 0; border-radius: 9px; overflow: hidden;
+  background: #dfe2e8; border: 1.5px solid #d4d8df; color: #8c93a3; text-align: left; font-weight: 600;
+}
+.filter-button:hover { filter: brightness(1.03); background: #dfe2e8; }
+.filter-button.on { background: #c3d3ec; border-color: #a7c0e6; color: #2f3646; }
+.filter-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 7px 6px 7px 7px; }
+.filter-name { font-size: 13px; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.filter-button .swatch { width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; }
+.filter-button .swatch img { max-width: 24px; max-height: 24px; }
+.filter-button:not(.on) .swatch img { opacity: .55; }
+.filter-button .swatch i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: #8c93a3; }
+.filter-count {
+  flex: none; display: flex; align-items: center; justify-content: center; min-width: 30px; padding: 0 5px;
+  font-size: 12px; font-variant-numeric: tabular-nums; color: inherit;
+}
+.filter-button .filter-count { border-left: 1.5px solid rgba(47, 54, 70, .12); background: rgba(255, 255, 255, .25); }
+
+.filters-foot { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; margin-top: 6px; border-top: 1px solid rgba(47, 54, 70, .12); }
+#completed-toggle { color: #66708a; font-size: 16px; }
+#filters-reset {
+  flex: none; width: 40px; height: 40px; padding: 8px; border: 0; border-radius: 50%; background: #2e3443;
+}
+#filters-reset:hover { background: #3c4356; }
+#filters-reset svg { width: 100%; height: 100%; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---- marks on the map ---- */
 .leaflet-container { --mark-scale: 1; }
@@ -141,7 +198,7 @@ button.icon.done svg { stroke: var(--ok); }
 
 /* ---- small-area panel, like the game's: dark header fading into a light card, tier pill, honeycomb ---- */
 #area {
-  position: fixed; z-index: 1000; top: 16px; right: 268px; width: 380px; max-height: calc(100vh - 32px);
+  position: fixed; z-index: 1000; top: 16px; right: 372px; width: 380px; max-height: calc(100vh - 32px);
   overflow-y: auto; scrollbar-width: none; border-radius: 14px; color: #2b3242;
   background: linear-gradient(180deg, #e9ecf3 0%, #f3f4f8 100%); box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
 }
@@ -275,7 +332,7 @@ button.icon.done svg { stroke: var(--ok); }
 
 @media (max-width: 520px) {
   .panel { left: 8px; right: 8px; top: 8px; width: auto; }
-  #filters { left: auto; top: 96px; right: 8px; width: 190px; }
+  #filters { top: 96px; right: 8px; width: 240px; max-height: calc(100vh - 220px); }
   #calib { left: 8px; right: 8px; width: auto; top: auto; bottom: 110px; transform: none; }
   #area { left: 8px; right: 8px; width: auto; top: auto; bottom: 110px; max-height: 60vh; }
   #area-pets { --hex: 60px; --hex-gap: 9px; }

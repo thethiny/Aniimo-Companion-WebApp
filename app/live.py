@@ -20,9 +20,12 @@ class LiveStore:
         if not found.get(self.required):
             return   # not loaded in game yet (login, loading screen): keep the last good read
         with self.lock:
+            as_json = lambda d: json.loads(json.dumps(d))   # same key types whether read from file or memory
+            changed = as_json({k: v for k, v in self.data.items() if k != "updated"}) != as_json(found)
             self.data = dict(found, updated=int(time.time()))
-            os.makedirs(DATA, exist_ok=True)
-            json.dump(self.data, open(self.path, "w", encoding="utf-8"))
+            if changed:   # reads come every few seconds; only rewrite the file when something changed
+                os.makedirs(DATA, exist_ok=True)
+                json.dump(self.data, open(self.path, "w", encoding="utf-8"))
 
     def get(self):
         with self.lock:
