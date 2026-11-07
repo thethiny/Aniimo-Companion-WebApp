@@ -80,13 +80,16 @@ function render() {
   $("z").textContent = z.toFixed(0);
   $("y").textContent = y.toFixed(0);
   if (!current) return;
+  const auto = state.calibration && state.calibration.source === "auto";
+  $("calibrate").style.display = auto ? "none" : "";
   if (!calibrated()) {
-    const n = (state.calibration && state.calibration.points.length) || 0;
-    setStatus(`Not calibrated yet (${n}/2 points). Use Calibrate.`, false);
+    setStatus(state.mapPos
+      ? "Calibrating from the game's minimap: walk about 25 m"
+      : "Waiting for the game's minimap to calibrate (or use Calibrate)", false);
     if (map.hasLayer(player)) map.removeLayer(player);
     return;
   }
-  setStatus("Live", true);
+  setStatus(auto ? "Live" : "Live (manual calibration)", true);
   const [px, py] = worldToPixel(x, z);
   const ll = toLatLng(px, py);
   player.setLatLng(ll);

@@ -182,6 +182,47 @@ class Il2Cpp:
                     found[targets[value]].append((parent, offset))
         return found
 
+    def resolve(self, classes, field_names):
+        """Classes, fields, class members and instances in three shared memory passes:
+        1. pointers to the names (class lookup records and FieldInfo records)
+        2. pointers to the classes' type definitions (the classes themselves)
+        3. pointers to the classes (their FieldInfo records and live instances)
+        classes: [(namespace, name)]. Returns {"classes": {name: klass}, "fields": {name: [(class, offset)]},
+        "members": {klass: ({field: offset}, [instances])}}."""
+        wanted_ns = {name: ns for ns, name in classes}
+        names = set(wanted_ns) | set(field_names)
+        ptrs = {self.string_address(n): n for n in names}
+        fields = {n: [] for n in field_names}
+        typedefs = {}
+        for value, refs in self.proc.scan_qwords(ptrs.keys()).items():
+            name = ptrs[value]
+            for ref in refs:
+                entry = self.proc.read(ref - 8, 8 + FIELD_SIZE)
+                if not entry or len(entry) < 8 + FIELD_SIZE:
+                    continue
+                ns, _name, typedef, parent = struct.unpack_from("<QQQQ", entry)
+                offset = struct.unpack_from("<i", entry, 8 + FIELD_OFFSET)[0]
+                if name in wanted_ns and is_pointer(ns) and is_pointer(typedef) and self.proc.cstr(ns) == wanted_ns[name]:
+                    typedefs[typedef] = name
+                if name in fields and is_pointer(parent) and 0 <= offset < 0x10000:
+                    fields[name].append((parent, offset))
+        found = {}
+        for typedef, refs in self.proc.scan_qwords(typedefs.keys()).items():
+            for ref in refs:
+                klass = ref - CLASS_TYPEDEF
+                if self.proc.u64(klass + CLASS_SELF) == klass:
+                    found[typedefs[typedef]] = klass
+        members = {k: ({}, []) for k in found.values()}
+        for klass, refs in self.proc.scan_qwords(members.keys()).items():
+            own_fields, objects = members[klass]
+            for ref in refs:
+                name_ptr = self.proc.u64(ref - FIELD_PARENT)
+                if self.is_metadata_string(name_ptr):
+                    own_fields[self.proc.cstr(name_ptr)] = self.proc.i32(ref - FIELD_PARENT + FIELD_OFFSET)
+                elif ref != klass:
+                    objects.append(ref)
+        return {"classes": found, "fields": fields, "members": members}
+
     def class_members(self, klass):
         """(own fields {name: offset}, candidate instance addresses) from every reference to klass."""
         fields, objects = {}, []

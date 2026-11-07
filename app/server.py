@@ -1,10 +1,12 @@
 # Live Aniimo map server. Reads the game read-only and serves the map page on the LAN.
-# Usage: python server.py [--port 8777]
+# Usage: python server.py [--port 8777] [--web]   (--web also opens the map in its own window)
 import argparse
 import json
+import logging
 import os
 import socket
 import sys
+import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -47,6 +49,9 @@ class Handler(SimpleHTTPRequestHandler):
             state = reader.snapshot()
             scene = state.get("scene")
             if scene:
+                if state.get("status") == "ok" and state.get("mapPos"):
+                    pos = state["pos"]
+                    calibration.observe(scene["mapId"], [pos["x"], pos["z"]], state["mapPos"])
                 state["calibration"] = calibration.get(scene["mapId"])
             return self._json(state)
         return super().do_GET()
@@ -80,19 +85,34 @@ def lan_addresses():
         return []
 
 
+def open_window(port):
+    """Native window (Edge WebView2) on this PC; the LAN server keeps running alongside it."""
+    import webview   # only needed for --web
+    webview.create_window("Aniimo Live Map", f"http://127.0.0.1:{port}/", width=1280, height=820)
+    webview.start()   # blocks until the window closes
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8777)
+    parser.add_argument("--web", action="store_true", help="also open the map in its own window")
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     reader.start()
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     for ip in lan_addresses():
         print(f"Map: http://{ip}:{args.port}/")
     try:
-        server.serve_forever()
+        if args.web:
+            threading.Thread(target=server.serve_forever, name="HTTP", daemon=True).start()
+            open_window(args.port)
+        else:
+            server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if args.web:
+            server.shutdown()
         reader.stop()
 
 
