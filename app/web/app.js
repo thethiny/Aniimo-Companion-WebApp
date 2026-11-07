@@ -45,6 +45,7 @@ function showScene(scene) {
   });
   current = { id, info, layer };
   layer.addTo(map);
+  setBorders(info);
   map.setMinZoom(0);
   map.setMaxZoom(info.maxZoom + 2);
   const startZoom = Number(new URLSearchParams(location.search).get("zoom")) || 2;   // ?zoom=4 to start closer
@@ -53,6 +54,16 @@ function showScene(scene) {
   loadAreas(id, info);
   loadMarks();
   drawCalibDots();
+}
+
+// ---- small-area borders, traced from the game's area mask (shown with the area names) ----
+let borders = null;
+function setBorders(info) {
+  if (borders) map.removeLayer(borders);
+  borders = info.areaBorders
+    ? L.imageOverlay(info.areaBorders, L.latLngBounds(toLatLng(0, info.height), toLatLng(info.width, 0)),
+      { className: "area-borders", interactive: false })
+    : null;
 }
 
 // ---- location: which small area you're in, from the game's own area mask ----
@@ -80,7 +91,6 @@ function loadAreas(id, info) {
 async function refreshAreaNames() {
   try {
     areaNames = await (await fetch("api/areas", { cache: "no-store" })).json();
-    if (markData.marks.length) drawMarks();   // area labels need the names
   } catch (e) { /* keep what we have */ }
 }
 setInterval(refreshAreaNames, 60000);
@@ -96,11 +106,16 @@ function areaIndexAt(px, py) {
 function renderLocation(px, py) {
   const index = calibrated() ? areaIndexAt(px, py) : 0;
   const block = index && areaNames.indexToBlock ? areaNames.indexToBlock[index] : null;
-  const sub = block && areaNames.blocks ? areaNames.blocks[block] : null;
-  // Inside the small-area mask means the scene's main region; elsewhere only the world is known
-  $("region").textContent = index && areaNames.mainRegion ? areaNames.mainRegion : (current ? current.info.name : "-");
+  // Names and regions come from the game's config (mapdata), with what the live map showed as fallback
+  const info = block ? (markData.blocks || {})[block] : null;
+  const sub = (info && info.name) || (block && areaNames.blocks ? areaNames.blocks[block] : null);
+  const region = (info && info.region) || (index && areaNames.mainRegion);
+  $("region").textContent = region || (current ? current.info.name : "-");
   $("subarea").textContent = sub || "";
+  locationBlock = info ? block : null;
 }
+let locationBlock = null;   // small area you're in, opened by clicking its name
+$("subarea").onclick = () => { if (locationBlock) openArea(locationBlock); };
 
 $("copy").onclick = async () => {
   if (!state || !state.pos) return;
@@ -157,6 +172,7 @@ function render() {
     return;
   }
   setStatus(auto ? "Live" : "Live (manual calibration)", true);
+  if (marksWaitingForPosition && !markData.fit) drawMarks();   // marks placed by the calibration
   const [px, py] = worldToPixel(x, z);
   renderLocation(px, py);
   const ll = toLatLng(px, py);
@@ -206,7 +222,7 @@ const OFF_ROUTE_METRES = 40;   // further than this from the path: you still hav
 const routeMarks = L.layerGroup().addTo(map);
 let routeKey = null;
 
-function markIcon(cls, html) {
+function routeIcon(cls, html) {
   return L.divIcon({ className: `route-mark ${cls}`, iconSize: [28, 28], iconAnchor: [14, 14], html });
 }
 
@@ -267,9 +283,9 @@ function renderRoute() {
     routeKey = key;
     routeMarks.clearLayers();
     if (route.start && route.start.teleport) {
-      L.marker(ll(route.start.pos), { icon: markIcon("start", "&#x2726;"), title: "Teleport here" }).addTo(routeMarks);
+      L.marker(ll(route.start.pos), { icon: routeIcon("start", "&#x2726;"), title: "Teleport here" }).addTo(routeMarks);
     }
-    L.marker(ll(route.end), { icon: markIcon("end", "&#x2691;"), title: "Target" }).addTo(routeMarks);
+    L.marker(ll(route.end), { icon: routeIcon("end", "&#x2691;"), title: "Target" }).addTo(routeMarks);
   }
 }
 
@@ -333,17 +349,22 @@ map.on("click", (e) => {
   calibPost("add", { map: [p.x, p.y] });
 });
 
-// ---- marks: the game's map icons, mirrored from what the big map has loaded ----
-const CATEGORY_COLORS = {
-  waypoint: "#4da3ff", boss: "#ff5d5d", fight: "#ff7ad9", challenge: "#ffb35c", collection: "#ffd34d",
-  mission: "#6fdc8c", mine: "#ffffff", other: "#93a4b8", area: "#ffffff",
-};
-const ALWAYS_SHOWN = new Set(["waypoint", "boss", "area"]);   // the rest appear once zoomed in
-const DETAIL_ZOOM_FROM_MAX = 3;   // show everything at maxZoom - 3 and closer
+// ---- marks: every mark of the scene from the game's config, with live status from the game's map ----
+const TYPE_BLOOM = 10406, TYPE_ALPHA = 10404, TYPE_OMEGA = 10304, TYPE_PATHFINDER = 10510, TYPE_CUSTOM = 101;
+const FAR_TYPES = new Set([TYPE_BLOOM, TYPE_ALPHA, TYPE_OMEGA, 2000, 10407, 33]);   // shown at any zoom
+const BIG_TYPES = new Set([TYPE_BLOOM, TYPE_ALPHA, TYPE_OMEGA]);
+const BOSS_FRAMES = { [TYPE_ALPHA]: "alpha", [TYPE_OMEGA]: "omega" };   // portrait in a horned diamond
+const AREAS = "areas";                 // filter key of the area labels and borders
+const DETAIL_ZOOM_FROM_MAX = 3;        // every other mark shows from maxZoom - 3
+const AREA_LABEL_ZOOM_FROM_MAX = 3.5;  // area names overlap further out
 const STATUS_LOCKED = 1, STATUS_DONE = 3;
-const markLayers = {};            // category -> L.layerGroup
-let markData = { marks: [], categories: [] };
-let hiddenCategories = new Set(JSON.parse(localStorageGet("hiddenCategories") || "[]"));
+// Icons the game swaps for an "_Unknown" version while the mark is locked
+const HAS_UNKNOWN_ICON = /MarkPoint_(Transmit|Temple|CampingCar|Camp|LeylineTree|LeylineTree_Water|Challenge_TimeLimited|ThemeDecryption|RuneDecryption|VersatileDecryption)\.png$/;
+const markLayers = {};                 // type id (or AREAS) -> L.layerGroup
+let markData = { marks: [], types: {}, groups: [], blocks: {}, areas: [] };
+let marksWaitingForPosition = false;   // some marks need the calibration, which isn't there yet
+const DEFAULT_HIDDEN = ["10506"];      // chests: hundreds of them, off until you ask for them
+let hiddenTypes = new Set(JSON.parse(localStorageGet("hiddenTypes") || JSON.stringify(DEFAULT_HIDDEN)));
 
 function localStorageGet(key) {
   try { return localStorage.getItem(key); } catch (e) { return null; }
@@ -359,99 +380,350 @@ async function loadMarks() {
     return;
   }
   drawMarks();
+  renderAreaPanel();
+  renderTracking();
 }
 setInterval(loadMarks, 60000);
 
+// Map pixel of a mark: the game's own map position, else its world position through the fitted transform
+function markPixel(mark) {
+  if (mark.map) return mark.map;
+  if (!mark.world) return null;
+  const fit = markData.fit;
+  if (fit) return [fit.x[0] * mark.world[0] + fit.x[1], fit.z[0] * mark.world[1] + fit.z[1]];
+  return calibrated() ? worldToPixel(mark.world[0], mark.world[1]) : null;
+}
+
+function typeOf(mark) {
+  return markData.types[mark.type] || {};
+}
+
+// Your own marks use the icon picked in game: UI_Icon_Mark01..11, markIconIndex counts from 0
+const customMarkIcon = (index) => `UI_Icon_Mark${String(index + 1).padStart(2, "0")}.png`;
+
 function iconFor(mark) {
-  if (!mark.icon) return null;
-  // Locked waypoints and temples use the game's "_Unknown" artwork
-  if (mark.markStatus === STATUS_LOCKED && /Transmit|Temple/.test(mark.icon)) return mark.icon.replace(".png", "_Unknown.png");
-  return mark.icon;
+  const icon = mark.type === TYPE_CUSTOM && mark.iconIndex != null ? customMarkIcon(mark.iconIndex) : typeOf(mark).icon;
+  if (!icon) return null;
+  if (mark.status === STATUS_LOCKED && HAS_UNKNOWN_ICON.test(icon)) return icon.replace(".png", "_Unknown.png");
+  // Pathfinder fights: pink star while open, plain once beaten
+  if (mark.type === TYPE_PATHFINDER && mark.status !== STATUS_DONE) return icon.replace("_Normal.png", "_Twice.png");
+  return icon;
 }
 
-function markIcon(mark) {
-  const cls = ["mark", mark.markStatus === STATUS_LOCKED ? "locked" : "", mark.markStatus === STATUS_DONE ? "done" : ""].join(" ");
+function markClasses(mark) {
+  return ["mark", BIG_TYPES.has(mark.type) ? "big" : "", mark.status === STATUS_LOCKED ? "locked" : "",
+    mark.status === STATUS_DONE ? "done" : ""].join(" ");
+}
+
+// 44 x 44 box: diamond (22,11)-(37,26)-(22,41)-(7,26), horns rising from its upper edges
+const BOSS_FRAME_SVG = '<svg class="frame" viewBox="0 0 44 44">'
+  + '<path class="horns" d="M15.5 18.5 C11 15 10 10 11.5 4 C13 10 15.5 12.5 19 14.5 M28.5 18.5 C33 15 34 10 32.5 4 C31 10 28.5 12.5 25 14.5"/>'
+  + '<path class="diamond" d="M22 11 L37 26 L22 41 L7 26 Z"/></svg>';
+const DOT = "<i></i>";
+
+function markHtml(mark) {
   const icon = iconFor(mark);
-  const size = mark.category === "waypoint" || mark.category === "boss" ? 30 : 26;
-  const dot = `<i style="background:${CATEGORY_COLORS[mark.category] || "#fff"}"></i>`;
-  const html = icon ? `<img src="icons/${icon}" alt="" onerror="this.outerHTML='${dot.replace(/"/g, "&quot;")}'">` : dot;
-  return L.divIcon({ className: cls, iconSize: [size, size], iconAnchor: [size / 2, size / 2], html });
+  if (BOSS_FRAMES[mark.type] && mark.portrait) {
+    return `<div class="boss ${BOSS_FRAMES[mark.type]}"><img class="portrait" src="icons/${mark.portrait}" alt=""`
+      + ` onerror="this.src='icons/${icon}'">${BOSS_FRAME_SVG}</div>`;
+  }
+  return icon ? `<img src="icons/${icon}" alt="" onerror="this.outerHTML='${DOT}'">` : DOT;
 }
 
-function areaLabelFor(mark) {
-  const names = areaNames.blocks || {};
-  return names[mark.weatherAreaId] || null;
+// Size and centring come from CSS so icons can grow with the zoom (see scaleMarks)
+function markIcon(mark) {
+  return L.divIcon({ className: markClasses(mark), iconSize: null, html: markHtml(mark) });
+}
+
+function markTooltip(mark) {
+  const type = typeOf(mark).name || "Mark";
+  const status = mark.status === STATUS_LOCKED ? "locked" : mark.status === STATUS_DONE ? "completed" : "";
+  const where = mark.world ? `${mark.world[0].toFixed(0)}, ${mark.world[1].toFixed(0)}` : "";
+  const head = mark.title ? `<b>${mark.title}</b> · ${type}` : `<b>${type}</b>`;
+  return [head, status, where].filter(Boolean).join(" · ");
+}
+
+// Icons grow as you zoom in (like the game's map), from the zoom where all marks show
+const MARK_SCALE_PER_ZOOM = 1.3, MARK_SCALE_MIN = 0.8, MARK_SCALE_MAX = 2.2;
+function scaleMarks() {
+  if (!current) return;
+  const steps = map.getZoom() - (current.info.maxZoom - DETAIL_ZOOM_FROM_MAX);
+  const scale = Math.min(MARK_SCALE_MAX, Math.max(MARK_SCALE_MIN, MARK_SCALE_PER_ZOOM ** steps));
+  map.getContainer().style.setProperty("--mark-scale", scale.toFixed(3));
+}
+map.on("zoom", scaleMarks);
+
+// Name, level range and (once read from the game) completion, like the game's map labels
+function areaLabelHtml(area) {
+  const block = markData.blocks[area.id] || {};
+  const min = block.minLevel, max = block.maxLevel;
+  const level = min ? `Lv.${min}${max && max !== min ? `~${max}` : ""}` : "";
+  const completion = areaCompletion(area.id);
+  const details = [level, completion != null ? `${completion}%` : ""].filter(Boolean).join(" · ");
+  return `<div>${weatherIcon(area.id, "weather")}<b>${block.name || ""}</b>${details ? `<span>${details}</span>` : ""}</div>`;
+}
+
+function layerFor(key) {
+  if (!markLayers[key]) markLayers[key] = L.layerGroup();
+  return markLayers[key];
 }
 
 function drawMarks() {
   for (const layer of Object.values(markLayers)) layer.clearLayers();
   if (!current) return;
   const counts = {};
+  marksWaitingForPosition = false;
   for (const mark of markData.marks) {
-    const cat = mark.category;
-    if (!markLayers[cat]) markLayers[cat] = L.layerGroup();
-    let marker;
-    if (cat === "area") {
-      const name = areaLabelFor(mark);
-      if (!name) continue;
-      marker = L.marker(toLatLng(mark.map[0], mark.map[1]), {
-        icon: L.divIcon({ className: "area-label", html: name, iconSize: null }), interactive: false, keyboard: false,
-      });
-    } else {
-      marker = L.marker(toLatLng(mark.map[0], mark.map[1]), { icon: markIcon(mark), keyboard: false });
-      const where = mark.world ? `${mark.world[0].toFixed(0)}, ${mark.world[1].toFixed(0)}` : "";
-      const status = mark.markStatus === STATUS_LOCKED ? "locked" : mark.markStatus === STATUS_DONE ? "completed" : "";
-      marker.bindTooltip([labelOf(cat), status, where].filter(Boolean).join(" · "), { direction: "top", offset: [0, -12] });
-    }
-    marker.addTo(markLayers[cat]);
-    counts[cat] = (counts[cat] || 0) + 1;
+    const px = markPixel(mark);
+    if (!px) { marksWaitingForPosition = true; continue; }
+    const marker = L.marker(toLatLng(px[0], px[1]), { icon: markIcon(mark), keyboard: false });
+    marker.bindTooltip(markTooltip(mark), { direction: "top", offset: [0, -12] });
+    marker.addTo(layerFor(mark.type));
+    counts[mark.type] = (counts[mark.type] || 0) + 1;
+  }
+  for (const area of markData.areas || []) {
+    const px = markPixel(area);
+    if (!px || !(markData.blocks[area.id] || {}).name) continue;
+    L.marker(toLatLng(px[0], px[1]), {
+      icon: L.divIcon({ className: "area-label", html: areaLabelHtml(area), iconSize: null }), keyboard: false,
+    }).on("click", () => openArea(area.id)).addTo(layerFor(AREAS));
+    counts[AREAS] = (counts[AREAS] || 0) + 1;
   }
   renderFilters(counts);
   updateMarkVisibility();
 }
 
-function labelOf(cat) {
-  if (cat === "area") return "Area names";
-  const found = (markData.categories || []).find(([k]) => k === cat);
-  return found ? found[1] : cat;
+// ---- filters: the game's map filter groups, one checkbox per mark type ----
+function swatch(icon) {
+  return icon ? `<img src="icons/${icon}" alt="" onerror="this.outerHTML='${DOT}'">` : DOT;
+}
+
+function filterRow(key, label, icon, count, cls = "") {
+  return `<label class="filter ${cls}"><input type="checkbox" data-types="${key}">`
+    + `<span class="swatch">${swatch(icon)}</span><span>${label}</span><span class="count">${count}</span></label>`;
+}
+
+// Types of a filter group present in this scene, in the game's order
+function groupTypes(group, counts) {
+  const [key, , order] = group;
+  const rank = (id) => (order.indexOf(+id) + 1) || 999;
+  return Object.keys(markData.types)
+    .filter((id) => String(markData.types[id].group) === String(key) && counts[id])
+    .sort((a, b) => rank(a) - rank(b));
 }
 
 function renderFilters(counts) {
-  const cats = [...(markData.categories || []).map(([k]) => k), "area"].filter((k) => counts[k]);
   const sample = {};
-  for (const m of markData.marks) if (!sample[m.category] && iconFor(m)) sample[m.category] = iconFor(m);
-  $("filter-list").innerHTML = cats.map((k) => {
-    const swatch = sample[k] && k !== "area"
-      ? `<img src="icons/${sample[k]}" alt="" onerror="this.outerHTML='<i style=&quot;background:${CATEGORY_COLORS[k]}&quot;></i>'">`
-      : `<i style="background:${CATEGORY_COLORS[k]}"></i>`;
-    return `<label class="filter"><input type="checkbox" data-cat="${k}" ${hiddenCategories.has(k) ? "" : "checked"}>`
-      + `<span class="swatch">${swatch}</span><span>${labelOf(k)}</span><span class="count">${counts[k]}</span></label>`;
-  }).join("");
+  for (const m of markData.marks) if (!sample[m.type] && iconFor(m)) sample[m.type] = iconFor(m);
+  let html = "";
+  for (const group of markData.groups || []) {
+    const ids = groupTypes(group, counts);
+    if (!ids.length) continue;
+    const total = ids.reduce((n, id) => n + counts[id], 0);
+    html += '<div class="filter-group">'
+      + filterRow(ids.join(","), group[1], null, total, "group-head")
+      + ids.map((id) => filterRow(id, markData.types[id].name, sample[id] || markData.types[id].icon, counts[id])).join("")
+      + "</div>";
+  }
+  if (counts[AREAS]) html += filterRow(AREAS, "Areas", null, counts[AREAS], "group-head");
+  $("filter-list").innerHTML = html;
   $("marks-info").textContent = markData.marks.length
-    ? "From the game's map. Open the map in game to load more."
-    : "Open the map in game once to load its markers.";
+    ? "Open the map in game to refresh what you've completed."
+    : "No map data yet: run tools/build_mapdata.py.";
   for (const box of $("filter-list").querySelectorAll("input")) {
-    box.onchange = () => {
-      box.checked ? hiddenCategories.delete(box.dataset.cat) : hiddenCategories.add(box.dataset.cat);
-      localStorageSet("hiddenCategories", JSON.stringify([...hiddenCategories]));
-      updateMarkVisibility();
-    };
+    box.onchange = () => setTypesShown(box.dataset.types.split(","), box.checked);
+  }
+  syncFilterBoxes();
+}
+
+// A group's box is checked when all its types are shown, half-checked when only some are
+function syncFilterBoxes() {
+  for (const box of $("filter-list").querySelectorAll("input")) {
+    const ids = box.dataset.types.split(",");
+    const shown = ids.filter((id) => !hiddenTypes.has(id)).length;
+    box.checked = shown === ids.length;
+    box.indeterminate = shown > 0 && shown < ids.length;
   }
 }
+
+function setTypesShown(ids, shown) {
+  for (const id of ids) shown ? hiddenTypes.delete(id) : hiddenTypes.add(id);
+  localStorageSet("hiddenTypes", JSON.stringify([...hiddenTypes]));
+  syncFilterBoxes();
+  updateMarkVisibility();
+}
+
+function setAllShown(shown) {
+  setTypesShown([...$("filter-list").querySelectorAll("input")].flatMap((b) => b.dataset.types.split(",")), shown);
+}
+$("filters-all").onclick = () => setAllShown(true);
+$("filters-none").onclick = () => setAllShown(false);
 
 function updateMarkVisibility() {
   if (!current) return;
   const detailed = map.getZoom() >= current.info.maxZoom - DETAIL_ZOOM_FROM_MAX;
-  for (const [cat, layer] of Object.entries(markLayers)) {
-    const show = !hiddenCategories.has(cat) && (detailed || ALWAYS_SHOWN.has(cat));
+  for (const [key, layer] of Object.entries(markLayers)) {
+    const near = key === AREAS ? map.getZoom() >= current.info.maxZoom - AREA_LABEL_ZOOM_FROM_MAX : detailed || FAR_TYPES.has(+key);
+    const show = !hiddenTypes.has(key) && near;
     if (show && !map.hasLayer(layer)) layer.addTo(map);
     if (!show && map.hasLayer(layer)) map.removeLayer(layer);
   }
+  if (borders) {
+    const show = !hiddenTypes.has(AREAS);
+    if (show && !map.hasLayer(borders)) borders.addTo(map);
+    if (!show && map.hasLayer(borders)) map.removeLayer(borders);
+  }
+  scaleMarks();
 }
 map.on("zoomend", updateMarkVisibility);
 $("filters-toggle").onclick = () => $("filters").classList.toggle("collapsed");
 
+// ---- Aniimo: area completion, who lives where (seen / caught), and tracking one like the game does ----
+const STATE_KNOWN = 1, STATE_CAUGHT = 2;     // handbook stateMask bits
+const HANDBOOK_POLL_MS = 30000;
+const SPAWN_CELL = 40;                        // map pixels; spawn points are drawn as one square per cell
+const TIER_NAMES = ["bronze", "silver", "gold"];   // area completion tiers (thresholds per area, from the game)
+// Weather an Aniimo needs in an area: the badge on its portrait. Aurora stays a "?" until you've seen it.
+const CONDITION_ICONS = { snow: "UI_Img_Weather_Snow.png", rain: "UI_Img_Weather_Rainy.png",
+  thunder: "UI_Img_Weather_Thunderstorm.png", storm: "UI_Img_Weather_Windstorm.png", aurora: "UI_Img_Weather_Rainbow.png" };
+let handbook = { states: {}, blockCaught: {}, tracked: null };
+let weather = {};                             // block id -> weather id, live from the game
+let pickedTrack = null;                       // Aniimo you picked here; the game's own pick otherwise
+let trackClosed = null;                       // the game's pick you dismissed here
+let openAreaId = new URLSearchParams(location.search).get("area");   // ?area=20800 opens that area's panel
+const spawnLayer = L.layerGroup().addTo(map);
+
+async function getJson(url) {
+  return (await fetch(url, { cache: "no-store" })).json();
+}
+
+async function loadHandbook() {
+  try {
+    const [book, sky] = await Promise.all([getJson("api/handbook"), getJson("api/weather")]);
+    handbook = Object.assign({ states: {}, blockCaught: {}, tracked: null }, book);
+    weather = sky.weather || {};
+  } catch (e) {
+    return;
+  }
+  if (markData.marks.length) drawMarks();   // area labels show completion
+  renderAreaPanel();
+  renderTracking();
+}
+setInterval(loadHandbook, HANDBOOK_POLL_MS);
+
+// Caught in this area (what the game's completion counts), else seen anywhere, else unseen
+function petState(proto, blockId) {
+  if ((handbook.blockCaught[blockId] || []).includes(+proto)) return "caught";
+  return (handbook.states[proto] || 0) & STATE_KNOWN ? "seen" : "unseen";
+}
+
+function areaCompletion(blockId) {
+  const pets = (markData.blocks[blockId] || {}).pets || [];
+  if (!pets.length || !handbook.blockCaught[blockId]) return null;
+  const caught = pets.filter((p) => petState(p, blockId) === "caught").length;
+  return Math.round((100 * caught) / pets.length);
+}
+
+function weatherIcon(blockId, cls) {
+  const info = (markData.weathers || {})[weather[blockId]];
+  return info && info.icon ? `<img class="${cls}" src="icons/${info.icon}" alt="" title="${info.name || ""}">` : "";
+}
+
+function petLabel(proto) {
+  const pet = (markData.pets || {})[proto] || {};
+  return [pet.name || `Aniimo ${proto}`, pet.form].filter(Boolean).join(" · ");
+}
+
+function petIcon(proto, cls) {
+  const pet = (markData.pets || {})[proto] || {};
+  return pet.icon ? `<img class="${cls}" src="icons/${pet.icon}" alt="" onerror="this.style.visibility='hidden'">` : "";
+}
+
+// ---- area panel (right side, like the game's) ----
+function openArea(blockId) {
+  openAreaId = blockId;
+  renderAreaPanel();
+}
+$("area-close").onclick = () => { openAreaId = null; renderAreaPanel(); };
+
+function renderAreaPanel() {
+  const block = openAreaId && markData.blocks[openAreaId];
+  $("area").classList.toggle("hidden", !block);
+  if (!block) return;
+  const completion = areaCompletion(openAreaId);
+  $("area-name").textContent = block.name;
+  const sky = (markData.weathers || {})[weather[openAreaId]];
+  $("area-weather").innerHTML = sky ? `${weatherIcon(openAreaId, "weather")}<span>${sky.name || ""}</span>` : "";
+  $("area-level").textContent = block.minLevel ? `Lv. ${block.minLevel}~${block.maxLevel}` : "";
+  $("area-percent").textContent = completion == null ? "-" : `${completion}%`;
+  renderTiers(block.tiers || [], completion || 0);
+  $("area-pets").innerHTML = (block.pets || []).map((proto) => {
+    const state = petState(proto, openAreaId);
+    const tracked = String(proto) === String(currentTrack());
+    const condition = (block.conditions || {})[proto];
+    return `<button class="pet ${state} ${tracked ? "tracked" : ""}" data-proto="${proto}" title="${petLabel(proto)} (${state}${condition ? `, ${condition}` : ""})">`
+      + petIcon(proto, "head") + conditionBadge(condition, state) + "</button>";
+  }).join("");
+  for (const button of $("area-pets").querySelectorAll(".pet")) {
+    button.onclick = () => setTrack(button.dataset.proto);
+  }
+}
+
+function conditionBadge(condition, state) {
+  if (!condition) return "";
+  if (condition === "aurora" && state === "unseen") return '<i class="badge">?</i>';
+  return `<img class="badge" src="icons/${CONDITION_ICONS[condition]}" alt="${condition}">`;
+}
+
+// Progress bar coloured by the tier reached, with a marker at each tier's threshold
+function renderTiers(tiers, completion) {
+  const reached = tiers.filter((t) => completion >= t * 100).length;
+  const bar = $("area-bar");
+  bar.style.width = `${completion}%`;
+  bar.className = reached ? TIER_NAMES[Math.min(reached, TIER_NAMES.length) - 1] : "";
+  $("area-tiers").innerHTML = tiers.map((t, i) =>
+    `<i class="tier ${TIER_NAMES[i] || ""} ${completion >= t * 100 ? "reached" : ""}" style="left:${t * 100}%" title="${TIER_NAMES[i] || ""} at ${Math.round(t * 100)}%"></i>`).join("");
+}
+
+// ---- tracking: the yellow squares where the tracked Aniimo spawns ----
+function currentTrack() {
+  if (pickedTrack) return pickedTrack;
+  return handbook.tracked && String(handbook.tracked) !== String(trackClosed) ? handbook.tracked : null;
+}
+
+function setTrack(proto) {
+  pickedTrack = String(proto) === String(currentTrack()) ? null : proto;
+  if (!pickedTrack && handbook.tracked) trackClosed = handbook.tracked;   // un-tracking the game's pick
+  renderTracking();
+  renderAreaPanel();
+}
+$("track-close").onclick = () => {
+  if (handbook.tracked) trackClosed = handbook.tracked;
+  pickedTrack = null;
+  renderTracking();
+  renderAreaPanel();
+};
+
+function renderTracking() {
+  spawnLayer.clearLayers();
+  const proto = currentTrack();
+  $("track").classList.toggle("hidden", !proto);
+  if (!proto || !current) return;
+  $("track-icon").innerHTML = petIcon(proto, "head");
+  const pet = (markData.pets || {})[proto] || {};
+  $("track-name").textContent = pet.name || `Aniimo ${proto}`;
+  $("track-form").textContent = pet.form || "";
+  const cells = new Set();
+  for (const [x, y] of (markData.spawns || {})[proto] || []) cells.add(`${Math.floor(x / SPAWN_CELL)},${Math.floor(y / SPAWN_CELL)}`);
+  for (const cell of cells) {
+    const [cx, cy] = cell.split(",").map(Number);
+    L.rectangle([toLatLng(cx * SPAWN_CELL, (cy + 1) * SPAWN_CELL), toLatLng((cx + 1) * SPAWN_CELL, cy * SPAWN_CELL)],
+      { className: "spawn-cell", interactive: false }).addTo(spawnLayer);
+  }
+  $("track-where").textContent = cells.size ? "" : "Not found on this map";
+}
+
 // ---- start ----
 fetch("maps.json", { cache: "no-store" })
   .then((r) => r.json())
-  .then((m) => { maps = m; poll(); });
+  .then((m) => { maps = m; poll(); loadHandbook(); });

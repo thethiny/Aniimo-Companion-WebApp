@@ -10,7 +10,7 @@ from collections import defaultdict, deque
 
 import numpy as np
 import UnityPy
-from PIL import Image
+from PIL import Image, ImageFilter
 
 GAME = r"J:\SteamLibrary\steamapps\common\Aniimo"
 BUNDLES = os.path.join(GAME, r"Aniimo_Data\StreamingAssets\cvs\res\uab\win\DefaultPackage")
@@ -28,6 +28,8 @@ TILE_NAME = re.compile(r"UI_Img_(MapMini|Map)_(\d+)_(\d+)_(\d+)$")
 AREA_BUNDLE, AREA_NAME = r"xgui_tex2k_map_", re.compile(r"UI_Img_MapArea_(\d+)_(\d+)_(\d+)$")
 AREA_STEP = 255 / 60
 AREA_SCALE = 16          # one area-grid cell per 16 map pixels
+BORDER_GREEN = 160       # green below this inside the mask is a seam between areas
+BORDER_COAST_GAP = 15    # seams this close (mask pixels) to the sea are the coast fade, not borders
 
 
 def load_tiles():
@@ -62,13 +64,17 @@ def load_area_masks():
     return found
 
 
-def write_area_grid(scene, tiles, width, height):
-    """Grayscale PNG of small-area indices (0 = none), one cell per AREA_SCALE map pixels."""
+def compose_area_mask(tiles):
     tile_px = next(iter(tiles.values())).size[0]
     cols, rows = max(c for c, _ in tiles) + 1, max(r for _, r in tiles) + 1
     mask = Image.new("RGB", (cols * tile_px, rows * tile_px))
     for (c, r), img in tiles.items():
         mask.paste(img, (c * tile_px, r * tile_px))
+    return mask
+
+
+def write_area_grid(scene, mask, width, height):
+    """Grayscale PNG of small-area indices (0 = none), one cell per AREA_SCALE map pixels."""
     grid_w, grid_h = math.ceil(width / AREA_SCALE), math.ceil(height / AREA_SCALE)
     # Nearest sampling keeps index values exact (no blending across borders)
     px = np.asarray(mask.resize((grid_w, grid_h), Image.NEAREST), dtype=np.float32)
@@ -76,6 +82,20 @@ def write_area_grid(scene, tiles, width, height):
     os.makedirs(os.path.join(WEB, "areas"), exist_ok=True)
     Image.fromarray(index).save(os.path.join(WEB, "areas", f"{scene}.png"))
     return {"file": f"areas/{scene}.png", "scale": AREA_SCALE}
+
+
+def write_area_borders(scene, mask):
+    """Transparent PNG of the lines between small areas (the mask's dark seams, minus the coastline)."""
+    px = np.asarray(mask, dtype=np.float32)
+    outside = Image.fromarray((px[..., 0] == 0).astype(np.uint8) * 255)
+    near_coast = np.asarray(outside.filter(ImageFilter.MaxFilter(BORDER_COAST_GAP))) > 0
+    strength = np.clip((BORDER_GREEN - px[..., 1]) / BORDER_GREEN, 0, 1)
+    strength[near_coast] = 0
+    rgba = np.zeros(px.shape[:2] + (4,), dtype=np.uint8)
+    rgba[..., :3] = 255
+    rgba[..., 3] = (strength * 230).astype(np.uint8)
+    Image.fromarray(rgba).save(os.path.join(WEB, "areas", f"{scene}_borders.png"), optimize=True)
+    return f"areas/{scene}_borders.png"
 
 
 def compose(sets):
@@ -168,7 +188,9 @@ def main():
         maps[scene] = {"name": NAMES.get(scene, f"Map {scene}"), "width": image.width, "height": image.height,
                        "maxZoom": max_zoom, "tileSize": TILE, "regions": regions}
         if scene in area_masks:
-            maps[scene]["areaGrid"] = write_area_grid(scene, area_masks[scene], image.width, image.height)
+            mask = compose_area_mask(area_masks[scene])
+            maps[scene]["areaGrid"] = write_area_grid(scene, mask, image.width, image.height)
+            maps[scene]["areaBorders"] = write_area_borders(scene, mask)
         print(f"{scene}: {image.width}x{image.height}, zoom 0-{max_zoom}, regions {regions}")
     json.dump(maps, open(maps_path, "w", encoding="utf-8"), indent=1)
 

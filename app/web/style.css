@@ -55,6 +55,7 @@ button.on { background: var(--accent); color: #1b1300; border-color: var(--accen
 .region { font-size: 30px; font-weight: 700; line-height: 1.05; text-shadow: var(--shadow); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .subarea { font-size: 15px; color: #d7e3f2; text-shadow: var(--shadow); min-height: 4px; }
 .subarea:empty { display: none; }
+#location .subarea { pointer-events: auto; cursor: pointer; }
 .coords { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-variant-numeric: tabular-nums; }
 #coords { font-size: 15px; text-decoration: underline; text-decoration-color: rgba(255, 255, 255, .4); text-underline-offset: 3px; }
 .height { color: var(--muted); font-size: 12px; }
@@ -63,31 +64,109 @@ button.icon svg { width: 100%; height: 100%; fill: none; stroke: var(--text); st
 button.icon.done svg { stroke: var(--ok); }
 
 /* ---- mark filters (top-right) ---- */
-#filters { left: auto; right: 16px; width: 210px; padding: 10px 12px; }
+#filters { left: auto; right: 16px; width: 240px; padding: 10px 12px; display: flex; flex-direction: column; max-height: calc(100vh - 140px); }
 .filters-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
-#filter-list { margin-top: 6px; display: grid; gap: 2px; }
-#filters.collapsed #filter-list, #filters.collapsed #marks-info { display: none; }
+#filter-list { margin-top: 6px; display: grid; gap: 2px; overflow-y: auto; min-height: 0; }
+.filter-group { display: grid; gap: 1px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.filter-group .filter:not(.group-head) { padding-left: 18px; font-size: 13px; }
+.filter.group-head { font-weight: 600; }
+.filter.group-head .swatch { display: none; }
+#filters.collapsed #filter-list, #filters.collapsed #marks-info, #filters.collapsed .filter-bulk { display: none; }
+.filter-bulk { margin-top: 6px; }
+.filter-bulk button { padding: 3px 6px; font-size: 12px; }
 .filter { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 5px; cursor: pointer; user-select: none; }
 .filter:hover { background: rgba(255, 255, 255, .06); }
 .filter input { margin: 0; accent-color: var(--blue); }
 .filter .swatch { width: 18px; height: 18px; flex: none; display: flex; align-items: center; justify-content: center; }
 .filter .swatch img { max-width: 18px; max-height: 18px; }
-.filter .swatch i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #fff; }
+.filter .swatch i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #fff; background: var(--muted); }
 .filter .count { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 /* ---- marks on the map ---- */
-.mark { display: flex; align-items: center; justify-content: center; }
+.leaflet-container { --mark-scale: 1; }
+.mark {
+  --size: calc(26px * var(--mark-scale)); width: var(--size); height: var(--size);
+  margin: calc(var(--size) / -2) 0 0 calc(var(--size) / -2); display: flex; align-items: center; justify-content: center;
+}
+.mark.big { --size: calc(30px * var(--mark-scale)); }
 .mark img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8)); }
-.mark i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .7); }
+.mark i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--muted); box-shadow: 0 1px 3px rgba(0, 0, 0, .7); }
+
+/* Alpha / Omega: the Aniimo's portrait inside a glowing diamond with horns, like the game's map */
+.mark.big:has(.boss) { --size: calc(38px * var(--mark-scale)); }
+.boss { --glow: #ff2d55; position: relative; width: 100%; height: 100%; }
+.boss.omega { --glow: #b46bff; }
+.boss .portrait {
+  position: absolute; left: 15.9%; top: 25%; width: 68.2%; height: 68.2%; object-fit: cover; filter: none;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); background: color-mix(in srgb, var(--glow) 35%, #1a0b14);
+}
+.boss .frame {
+  position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible;
+  filter: drop-shadow(0 0 1.5px var(--glow)) drop-shadow(0 0 4px var(--glow));
+}
+.boss .frame path { fill: none; stroke: #fff; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.boss .frame .horns { fill: #fff; stroke-width: 1.2; }
+.mark:has(.boss).done::after { right: 8%; bottom: 0; }
 .mark.locked { opacity: .55; filter: grayscale(.8); }
 .mark.done::after {
   content: "\2713"; position: absolute; right: -4px; bottom: -4px; width: 13px; height: 13px; border-radius: 50%;
   background: var(--ok); color: #06240f; font-size: 10px; font-weight: 800; line-height: 13px; text-align: center;
 }
-.area-label {
-  white-space: nowrap; font-weight: 700; font-size: 14px; color: #fff; pointer-events: none;
-  text-shadow: 0 0 3px rgba(0, 0, 0, .9), 0 1px 2px rgba(0, 0, 0, .9); transform: translate(-50%, -50%); width: auto !important;
+.area-label { width: 0; height: 0; }
+.area-label > div { cursor: pointer; }
+.area-label > div {
+  position: absolute; transform: translate(-50%, -50%); text-align: center; white-space: nowrap;
+  font-weight: 700; font-size: 14px; line-height: 1.2; color: #fff;
+  text-shadow: 0 0 3px rgba(0, 0, 0, .9), 0 1px 2px rgba(0, 0, 0, .9);
 }
+.area-label span { display: block; font-size: 12px; font-weight: 600; color: #dfe8f3; }
+.area-label .weather { width: 20px; height: 20px; vertical-align: -4px; margin-right: 4px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8)); }
+.area-borders { opacity: .55; }
+
+/* ---- small-area panel ---- */
+#area { left: auto; right: 268px; width: 260px; }
+.area-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.area-title { font-size: 18px; font-weight: 700; }
+.area-weather { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.area-weather:empty { display: none; }
+.area-weather .weather { width: 18px; height: 18px; }
+.area-progress { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-weight: 700; }
+.area-progress .bar { position: relative; flex: 1; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .15); }
+#area-bar { height: 100%; border-radius: 3px; background: #8fb6dd; }
+#area-bar.bronze, .tier.bronze { --tier: #d08a4e; }
+#area-bar.silver, .tier.silver { --tier: #cfd8e3; }
+#area-bar.gold, .tier.gold { --tier: #ffcf4a; }
+#area-bar[class] { background: var(--tier, #8fb6dd); }
+.tier {
+  position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; transform: rotate(45deg);
+  background: #1d2b3c; border: 2px solid var(--tier); border-radius: 2px;
+}
+.tier.reached { background: var(--tier); }
+#area-pets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px; }
+.pet {
+  position: relative; aspect-ratio: 1; padding: 0; border-radius: 10px; overflow: hidden;
+  background: rgba(255, 255, 255, .08); border: 2px solid transparent;
+}
+.pet .head { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pet.seen .head { filter: grayscale(1) brightness(.75); }
+.pet.unseen .head { filter: brightness(0) opacity(.55); }
+.pet.tracked { border-color: #ffd34d; }
+.pet .badge {
+  position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(13, 24, 38, .85);
+  padding: 2px; font-style: normal; font-size: 12px; font-weight: 800; line-height: 14px; text-align: center; color: #fff;
+}
+
+/* ---- tracked Aniimo chip and its spawn squares ---- */
+#track {
+  position: fixed; z-index: 1000; top: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px 6px 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 30px;
+}
+#track.hidden { display: none; }
+#track-icon .head { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; display: block; background: rgba(255, 255, 255, .1); }
+.track-text { display: grid; line-height: 1.2; }
+#track-form, #track-where { color: var(--muted); font-size: 12px; }
+#track-where:empty { display: none; }
+.spawn-cell { stroke: #ffd34d; stroke-width: 2; fill: #ffd34d; fill-opacity: .18; }
 
 .map-button {
   position: fixed; z-index: 1000; right: 10px; bottom: 96px; width: 44px; height: 44px; flex: none;
@@ -114,6 +193,8 @@ button.icon.done svg { stroke: var(--ok); }
   .panel { left: 8px; right: 8px; top: 8px; width: auto; }
   #filters { left: auto; top: 96px; right: 8px; width: 190px; }
   #calib { left: 8px; right: 8px; width: auto; top: auto; bottom: 110px; transform: none; }
+  #area { left: 8px; right: 8px; width: auto; top: auto; bottom: 110px; max-height: 50vh; overflow-y: auto; }
+  #track { top: 64px; }
   .world { width: 50px; height: 50px; }
   .world svg { inset: 6px; width: 34px; height: 34px; }
   .region { font-size: 22px; }

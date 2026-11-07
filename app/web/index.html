@@ -47,8 +47,34 @@
       <svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
     </button>
   </div>
+  <div class="buttons filter-bulk">
+    <button id="filters-all">Select all</button>
+    <button id="filters-none">Deselect all</button>
+  </div>
   <div id="filter-list"></div>
   <div class="muted" id="marks-info"></div>
+</section>
+
+<!-- Small area: completion and the Aniimo living there, like the game's area panel -->
+<section class="panel hidden" id="area">
+  <div class="area-head">
+    <div>
+      <div class="area-weather" id="area-weather"></div>
+      <div class="muted" id="area-level"></div>
+      <div class="area-title" id="area-name"></div>
+    </div>
+    <button id="area-close" class="icon" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="area-progress"><span id="area-percent">-</span><div class="bar"><div id="area-bar"></div><div id="area-tiers"></div></div></div>
+  <div id="area-pets"></div>
+  <div class="muted">Coloured: caught here. Grey: seen. Dark: not seen yet. Click one to show where it lives.</div>
+</section>
+
+<!-- Tracked Aniimo (yours from the game, or one picked in an area panel) -->
+<section id="track" class="hidden">
+  <span id="track-icon"></span>
+  <span class="track-text"><b id="track-name"></b><span id="track-form"></span><span id="track-where"></span></span>
+  <button id="track-close" class="icon" title="Stop showing where it lives"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
 </section>
 
 <section class="panel hidden" id="calib">

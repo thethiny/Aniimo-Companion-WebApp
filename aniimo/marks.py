@@ -2,14 +2,14 @@
 # game's Lua heap. The full mark list lives in the packed pmdata.bin, decoded natively by xlua.dll; but the
 # big map builds one Lua record per mark it shows, with everything needed to draw it:
 #   spawnerId, realSceneId, mapX / mapY (map pixels, Y up), markPos (world), markConfigId, markType,
-#   markStatus, markLevel, commonIconUrl, weatherAreaId
+#   markStatus, markLevel, commonIconUrl, weatherAreaId, markIconIndex (your own marks: the icon you picked)
 # Config rows ({markConfigId, markIcon | icon}) give the icon for marks whose record has none.
 # Records only exist while the map UI holds them, so callers merge results over time.
 from . import lua
 
 RECORD_KEY = "mapX"
 CONFIG_KEY = "markConfigId"
-FIELDS = ("markConfigId", "markType", "markStatus", "markLevel", "weatherAreaId")
+FIELDS = ("markConfigId", "markType", "markStatus", "markLevel", "weatherAreaId", "markIconIndex")
 
 
 def _num(v):

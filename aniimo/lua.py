@@ -60,6 +60,13 @@ def value(proc, raw, depth):
     return f"<itype {t:#x}>"
 
 
+def table_ref(value):
+    """Address of a nested table that read_table left unread ("<table 0x...>"), else None."""
+    if isinstance(value, str) and value.startswith("<table 0x"):
+        return int(value[7:-1], 16)
+    return None
+
+
 def read_table(proc, tab, depth=2):
     """Lua table as {key: value}; array part keyed by int index."""
     head = proc.read(tab, 0x38)
@@ -103,6 +110,20 @@ def owner_tables(proc, nodes, max_index=256):
             if hmask < 1 << 16 and (hmask + 1) & hmask == 0 and node < start + (hmask + 1) * NODE_SIZE:
                 found.setdefault(node, tab)
     return found
+
+
+def synced_fields(proc, address):
+    """{key: value} of a synced game object (fields under "_properties") or of a plain table, one level
+    deep: nested tables stay "<table 0x...>" refs (synced objects link back to their owners and root)."""
+    table = (read_table(proc, address, depth=0) or {}) if address else {}
+    inner = table_ref(table.get("_properties"))
+    return (read_table(proc, inner, depth=0) or {}) if inner else table
+
+
+def synced_children(proc, address, min_key=0):
+    """{key: fields} for a map of synced objects keyed by integer ids >= min_key."""
+    return {key: synced_fields(proc, table_ref(ref)) for key, ref in synced_fields(proc, address).items()
+            if isinstance(key, int) and key >= min_key and table_ref(ref)}
 
 
 def tables_with_key(proc, gcstrs):
