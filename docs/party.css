@@ -1,0 +1,41 @@
+/* ---- party: member cards beside your profile, badges, and their arrows on the map ---- */
+#party {
+  position: fixed; z-index: 1002; top: 16px; left: calc(16px + 280px + 10px);   /* right of the 280 px profile */
+  display: flex; gap: 10px; max-width: calc(100vw - 306px - 360px); overflow-x: auto; scrollbar-width: none;
+}
+#party.hidden { display: none; }
+.party-card {
+  flex: none; display: flex; align-items: center; gap: 10px; width: 236px; padding: 8px 12px 8px 8px;
+  border-radius: 18px; border: 0; background: rgba(38, 44, 62, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+  color: #fff; text-align: left;
+}
+.party-card:hover { background: rgba(48, 55, 76, .95); }
+.party-card.offline { opacity: .55; }
+.party-picture { position: relative; flex: none; width: 56px; height: 56px; }
+.party-icon { position: absolute; inset: 8px; width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #c9d3e0; }
+.party-frame { position: absolute; inset: 0; width: 56px; height: 56px; object-fit: contain; }
+.party-picture .party-cat { position: absolute; left: -4px; top: -6px; width: 30px; }
+.party-info { flex: 1; display: grid; gap: 1px; min-width: 0; line-height: 1.2; }
+.party-info b { display: flex; align-items: center; gap: 4px; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.party-info .profile-rank img { width: 16px; height: 16px; }
+.party-level { font-size: 12px; color: #c9d1dd; }
+.party-where { font-size: 12px; color: #ffd98a; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* the game's cat badge: dark cat head with <N>P */
+.party-cat path { fill: #3b3f4f; stroke: rgba(255, 255, 255, .55); stroke-width: 1.5; }
+.party-cat text { fill: #ffd34d; font: 700 13px system-ui, sans-serif; text-anchor: middle; }
+.party-flag { flex: none; width: 16px; height: 16px; fill: #ffd34d; stroke: #ffd34d; stroke-width: 2; stroke-linejoin: round; }
+
+/* your own badge on your profile picture */
+#profile-party { position: absolute; left: -6px; top: -8px; display: flex; align-items: flex-start; z-index: 1; pointer-events: none; }
+#profile-party .party-cat { width: 30px; }
+#profile-party .party-flag { margin-left: -2px; }
+
+/* map arrows: badge upright above, arrow turned to where they face */
+.party-marker { display: flex; flex-direction: column; align-items: center; }
+.party-marker .party-cat { width: 30px; height: 24px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .7)); }
+.party-marker .arrow { width: 30px; height: 30px; margin-top: 2px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .7)); }
+
+@media (max-width: 720px) {
+  #party { top: auto; bottom: 120px; left: 16px; max-width: calc(100vw - 32px); }
+}
