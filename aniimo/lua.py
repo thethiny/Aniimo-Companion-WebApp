@@ -118,6 +118,13 @@ def synced_fields(proc, address):
     deep: nested tables stay "<table 0x...>" refs (synced objects link back to their owners and root)."""
     table = (read_table(proc, address, depth=0) or {}) if address else {}
     inner = table_ref(table.get("_properties"))
+    root = table_ref(table.get("_root"))
+    if root and root != address and table.get("_aoiscopeForLazy") is not None and not (
+            inner and read_table(proc, inner, depth=0)):
+        # A lazy view (filled on first use in game): its values are in the synced object it stands for
+        rooted = read_table(proc, root, depth=0) or {}
+        if rooted.get("_name") == table.get("_name"):
+            inner = table_ref(rooted.get("_properties")) or inner
     return (read_table(proc, inner, depth=0) or {}) if inner else table
 
 

@@ -1,10 +1,14 @@
-# Your player profile, read-only from your property table (the one handbook.py finds):
+# Your player profile, read-only from your live property table (handbook.live_player):
 #   playerName, level, exp                     exp counts toward the next level (player_level_data needExp)
 #   headIcon / headFrame                       picture and frame ids (player_head_icon_data / _frame_data)
 #   serverArea                                 which server region you play on (open_server_time_data)
 #   lastDayUpdateTs, lastWeekUpdateTs          when the server last ran its daily / weekly reset
 #   commonEnergyNums / commonEnergyTimes /     per energy id: how much you have, when the next point comes,
 #   energyAutoLimit                            and where natural recovery stops
+#   activityDailyActive                        Daily Activity: dailyActiveScore and per task its state
+#   leylineTreeInfoMap / commonMoneyNums       per region Branch: points infused; its Lumin Amber not used yet
+#   hatchSlotMap                               {slot: {status, endTs, item: {id}, speedUpTime}}: eggs hatching
+#                                              (filled once you open the hatch screen; slot 1 is the middle)
 # The server updates the count and the next time on every point, so between reads the page counts on
 # from these by the recovery interval.
 from . import handbook, lua
@@ -25,18 +29,56 @@ def _energy(proc, player, key):
     return _number(lua.synced_fields(proc, lua.table_ref(player.get(key))).get(PRIMEGY))
 
 
+def _daily_activity(proc, player):
+    """{"score", "tasks": {task id: state}} (state 3 = claimed), or None"""
+    daily = lua.synced_fields(proc, lua.table_ref(player.get("activityDailyActive")))
+    base = lua.synced_fields(proc, lua.table_ref(daily.get("activityBase")))
+    tasks = lua.synced_children(proc, lua.table_ref(base.get("activityTasks")))
+    if not isinstance(daily.get("dailyActiveScore"), float):
+        return None
+    return {"score": int(daily["dailyActiveScore"]),
+            "tasks": {task: _int(fields.get("state")) for task, fields in tasks.items()}}
+
+
+def _branches(proc, player):
+    """{Branch id: {"infused": points, "level"}} for the Branches you've started; the unused Lumin Amber
+    count comes with the money (keyed by the amber's item id)"""
+    trees = lua.synced_children(proc, lua.table_ref(player.get("leylineTreeInfoMap")), 1)
+    return {tree: {"infused": _int(info.get("leylineTreePoint")), "level": _int(info.get("leylineTreeLevel"))}
+            for tree, info in trees.items()}
+
+
+def _eggs(proc, player):
+    """[{"slot", "egg": item id, "endAt"}] for the hatch slots holding an egg (empty list if none), or None
+    while the game hasn't filled the slots in this copy"""
+    slots = lua.synced_children(proc, lua.table_ref(player.get("hatchSlotMap")), 1)
+    if not slots:
+        return None
+    eggs = []
+    for slot, fields in slots.items():
+        egg = _int(lua.synced_fields(proc, lua.table_ref(fields.get("item"))).get("id"))
+        if egg:
+            eggs.append({"slot": slot, "egg": egg, "endAt": _number(fields.get("endTs"))})
+    return sorted(eggs, key=lambda e: e["slot"])
+
+
 def collect(proc):
     """{"name", "level", "exp", "headIcon", "headFrame", "serverArea", "dayReset", "weekReset",
-        "primegy": {"value", "max", "nextAt"}}; times are Unix seconds"""
-    found = handbook.where(proc)
-    player = (lua.read_table(proc, found["player"], depth=0) or {}) if found["player"] else {}
+        "primegy": {"value", "max", "nextAt"}, "daily": {"score", "tasks"}, "eggs": [...], "branches": {...},
+        "money": {item id: count}}; times are Unix seconds"""
+    player = handbook.live_player(proc)
     name = player.get("playerName")
     if not isinstance(name, str) or not name:
         return {}
     value, limit = _energy(proc, player, "commonEnergyNums"), _energy(proc, player, "energyAutoLimit")
+    money = lua.synced_fields(proc, lua.table_ref(player.get("commonMoneyNums")))
     return {"name": name, "level": _int(player.get("level")), "exp": _int(player.get("exp")),
             "headIcon": _int(player.get("headIcon")), "headFrame": _int(player.get("headFrame")),
             "serverArea": _int(player.get("serverArea")),
             "dayReset": _number(player.get("lastDayUpdateTs")), "weekReset": _number(player.get("lastWeekUpdateTs")),
             "primegy": {"value": int(value) if value is not None else None, "max": int(limit) if limit else None,
-                        "nextAt": _energy(proc, player, "commonEnergyTimes")}}
+                        "nextAt": _energy(proc, player, "commonEnergyTimes")},
+            "daily": handbook.newest(proc, lambda fields: _daily_activity(proc, fields)),
+            "eggs": handbook.newest(proc, lambda fields: _eggs(proc, fields)) or [],
+            "branches": _branches(proc, player),
+            "money": {item: int(count) for item, count in money.items() if isinstance(item, int) and isinstance(count, float)}}

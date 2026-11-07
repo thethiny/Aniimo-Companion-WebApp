@@ -2,6 +2,7 @@
 # tools/build_mapdata.py, which also carries the small areas and where each Aniimo spawns) overlaid with what the game's map has shown us live (locked / completed status,
 # your own marks, shared marks, quests). Live records are merged over time and kept in data/marks.json.
 import json
+import math
 import os
 import threading
 import time
@@ -13,6 +14,9 @@ LIVE_FIELDS = {"markStatus": "status", "markLevel": "level", "markIconIndex": "i
                "map": "map"}   # live record field -> field sent to the page
 FIT_MIN_POINTS = 3
 FIT_MAX_ERROR = 4.0      # map pixels; live records with a worse fit (stale or bogus world positions) are dropped
+# The config places some Alpha / Omega Aniimo twice, a few metres apart; the game draws one of them
+SINGLE_TYPES = {10404, 10304}   # Alpha, Omega
+SAME_SPOT = 15.0                # metres
 
 
 def fit_axis(pairs):
@@ -43,6 +47,21 @@ def fit_world_to_map(records):
         points = [(w, m) for w, m in points
                   if abs(fx[0] * w[0] + fx[1] - m[0]) <= FIT_MAX_ERROR and abs(fz[0] * w[1] + fz[1] - m[1]) <= FIT_MAX_ERROR]
     return {"x": fx, "z": fz}
+
+
+def drop_duplicates(marks):
+    """Marks of SINGLE_TYPES with the same type and name within SAME_SPOT of each other count once: the one
+    the game's live map knows (it has a status) wins, else the first."""
+    kept = []
+    ranked = sorted(marks, key=lambda m: m.get("status") is None)   # stable: live ones first
+    for mark in ranked:
+        if mark.get("type") in SINGLE_TYPES and mark.get("world") and any(
+                other.get("type") == mark["type"] and other.get("title") == mark.get("title") and other.get("world")
+                and math.dist(other["world"], mark["world"]) < SAME_SPOT for other in kept):
+            continue
+        kept.append(mark)
+    order = {id(m): i for i, m in enumerate(marks)}
+    return sorted(kept, key=lambda m: order[id(m)])
 
 
 class StaticMapData:
@@ -98,5 +117,5 @@ class MarkStore:
         spawns = {proto: scenes[str(scene)] for proto, scenes in static.get("spawns", {}).items() if str(scene) in scenes}
         return {"types": types, "groups": static.get("groups", []), "blocks": static.get("blocks", {}),
                 "pets": static.get("pets", {}), "spawns": spawns, "weathers": static.get("weathers", {}),
-                "profile": static.get("profile", {}), "marks": list(marks.values()), "areas": scene_static.get("areas", []),
+                "profile": static.get("profile", {}), "marks": drop_duplicates(list(marks.values())), "areas": scene_static.get("areas", []),
                 "fit": fit_world_to_map(live.values())}

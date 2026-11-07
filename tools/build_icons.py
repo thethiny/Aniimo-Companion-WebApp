@@ -11,17 +11,19 @@ import re
 import UnityPy
 from PIL import Image
 
+from build_mapdata import PRIMEGY, icon_name
 from game import BUNDLES, MANIFESTS  # noqa: E402  (found through the running game)
+from pmdata import PmData
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web", "icons")
 ICON_FOLDERS = ("/Texture/Icon/Map_MarkPoint/", "/Texture/Image/Pet_head/", "/Texture/Icon/Weather/",
                 "/Texture/Icon/Player_head/", "/Texture/Image/Head_Frame/")
 BUNDLE_PATTERNS = (r"^mres_xgui_texture_expng_", r"^ar_xgui_image_pet_he_", r"^mres_xgui_panel_expng_",
                    r"^mres_xgui_common_expng_", r"^ar_xgui_icon_item_i_")
 # Single sprites from the map's own atlases: the small moon the map adds to weather icons at night, the
-# blue wink it shows when a weather-exclusive Aniimo is out, and the area panel's cat and crown. Items
-# picked one by one (the item folder holds thousands): Primegy for the player profile
+# blue wink it shows when a weather-exclusive Aniimo is out, and the area panel's cat and crown. Item icons
+# come from config_icons(): the item folder holds thousands
 EXTRA_ICONS = {"UI_Img_moon_small", "UI_Map_Icon_Weather5", "UI_Img_Map_PetArea_FloatTab_Pet_Nml",
-               "UI_Img_Map_PetArea_Gather_Schedule_Icon", "ui_item_1009"}
+               "UI_Img_Map_PetArea_Gather_Schedule_Icon"}
 PATCH_PATTERN = re.compile(r"^xpt(\d+)_mres_expng_")   # hot patches: newer icons and replacements
 MAX_SIZE = 96   # icons are drawn at ~30 px; keep some headroom for high-DPI screens
 
@@ -40,6 +42,16 @@ def icon_names():
     return names
 
 
+def config_icons():
+    """Item icons the player profile shows: Primegy, every egg that hatches and each region's Lumin Amber."""
+    pm = PmData()
+    items = pm.table("item_data", depth=0)
+    ambers = {levels.get("0", levels.get(0, {})).get("stoneId") for levels in pm.table("leylinetree_data", depth=2).values()}
+    wanted = {PRIMEGY} | set(pm.table("pet_hatch_egg_data")) | ambers
+    names = (icon_name((items.get(item) or {}).get("icon")) for item in wanted)
+    return {os.path.splitext(name)[0] for name in names if name}
+
+
 def bundle_priority(name):
     """0 for base bundles, N for xptN patches, None for bundles without icons."""
     patch = PATCH_PATTERN.match(name)
@@ -49,7 +61,7 @@ def bundle_priority(name):
 
 
 def main():
-    wanted = icon_names() | EXTRA_ICONS
+    wanted = icon_names() | EXTRA_ICONS | config_icons()
     best = {}   # icon name -> (rank, image); patches beat base bundles, sprite crops beat whole textures
     for name in sorted(os.listdir(BUNDLES)):
         priority = bundle_priority(name)

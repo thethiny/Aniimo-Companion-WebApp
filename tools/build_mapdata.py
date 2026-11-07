@@ -30,6 +30,8 @@ CONDITIONS = ("snow", "rain", "thunder", "storm", "aurora")
 TIER_KEYS = ("unlockReward1", "unlockReward2", "unlockReward3")   # bronze / silver / gold completion
 PRIMEGY = 1009             # Primegy's item, currency and energy id
 OFFICIAL_SERVERS = 2       # open_server_time_data row of the live servers (1 is the developers' test server)
+DAILY_ACTIVITY = 10000024  # event activity id of Daily Activity
+DAILY_TASK, DAILY_CHEST = 121, 122   # event_task_data actTaskType: a task, a reward chest along the bar
 
 
 def text_of(text, value):
@@ -129,9 +131,48 @@ def build_spawns(pm):
     return spawns
 
 
+def build_daily_activity(pm, text):
+    """Daily Activity: its point cap, the tasks (title, description, points) in the game's order and how
+    many reward chests sit along the bar (evenly spaced up to the cap)."""
+    rows = {i: r for i, r in pm.table("event_task_data").items() if r.get("activityId") == DAILY_ACTIVITY}
+    config = pm.table("event_daily_active_data").get(1) or {}
+    tasks = [{"id": i, "title": text_of(text, r.get("eventTitle")), "desc": text_of(text, r.get("taskDes")),
+              "points": r.get("award")}
+             for i, r in sorted(rows.items(), key=lambda kv: (kv[1].get("groupId", 0), kv[0]))
+             if r.get("actTaskType") == DAILY_TASK]
+    chests = [i for i, r in sorted(rows.items(), key=lambda kv: kv[1].get("sort", 0)) if r.get("actTaskType") == DAILY_CHEST]
+    return {"limit": config.get("scoreLimit"), "tasks": tasks, "chests": chests}
+
+
+def build_eggs(pm, text):
+    """{egg item id: {name, icon, minutes}}: every egg that hatches, and its base hatching time."""
+    items = pm.table("item_data", depth=0)
+    eggs = {}
+    for egg, row in pm.table("pet_hatch_egg_data").items():
+        item = items.get(egg) or {}
+        eggs[egg] = {"name": text_of(text, item.get("itemName")), "icon": icon_name(item.get("icon")),
+                     "quality": item.get("quality"), "minutes": row.get("times")}
+    return eggs
+
+
+def build_branches(pm, text):
+    """{Branch id: {name, amber: item id, amberName, amberIcon, points: [points to reach each level]}}: the
+    region trees you infuse with that region's Lumin Amber."""
+    items = pm.table("item_data", depth=0)
+    branches = {}
+    for branch, levels in pm.table("leylinetree_data", depth=2).items():
+        rows = [row for _, row in sorted(levels.items(), key=lambda kv: int(kv[0]))]
+        amber = rows[0].get("stoneId")
+        item = items.get(amber) or {}
+        branches[branch] = {"name": text_of(text, rows[0].get("name")), "amber": amber,
+                            "amberName": text_of(text, item.get("itemName")), "amberIcon": icon_name(item.get("icon")),
+                            "points": [row.get("point", 0) for row in rows]}
+    return branches
+
+
 def build_profile(pm, text):
-    """What the player profile needs besides your live data: picture and frame files by id, the XP each
-    level needs to the next, Primegy's name, icon and recovery, and per server region a moment its day
+    """What the player profile needs besides your live data: picture and frame files by id, the XP to reach
+    each level (from the one before), Primegy's name, icon and recovery, and per server region a moment its day
     starts (the daily reset)."""
     heads = {i: icon_name(row.get("res")) for i, row in pm.table("player_head_icon_data").items()}
     frames = {i: icon_name(row.get("res")) for i, row in pm.table("player_head_frame_data").items()}
@@ -143,7 +184,9 @@ def build_profile(pm, text):
             "primegy": {"name": text_of(text, item.get("itemName")), "desc": text_of(text, item.get("itemDes")),
                         "icon": icon_name(item.get("icon")), "seconds": recovery.get("cycleValue"),
                         "gain": recovery.get("changeValue")},
-            "serverDayStart": servers.get("time", {})}
+            "serverDayStart": servers.get("time", {}),
+            "daily": build_daily_activity(pm, text), "eggs": build_eggs(pm, text),
+            "branches": build_branches(pm, text)}
 
 
 def main():

@@ -71,6 +71,58 @@ button.on { background: var(--accent); color: #1b1300; border-color: var(--accen
 .profile-note:empty { display: none; }
 #primegy.full b { color: var(--accent); }
 
+button.profile-row {
+  width: 100%; padding: 8px 0 0; border: 0; border-top: 1px solid rgba(255, 255, 255, .14); border-radius: 0;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+button.profile-row:hover b { text-decoration: underline; text-underline-offset: 3px; }
+#daily.full #daily-score { color: var(--accent); }
+.egg-slots { grid-column: 2 / 4; display: flex; align-items: flex-end; gap: 14px; margin-top: 3px; }
+.egg { display: grid; justify-items: center; font-size: 11px; color: #c9d1dd; line-height: 1.1; }
+.egg em { font-style: normal; }
+.egg img { width: 30px; height: 30px; object-fit: contain; }
+.egg.perfect img { width: 36px; height: 36px; filter: drop-shadow(0 0 4px rgba(255, 211, 77, .7)); }
+.egg.ready { color: var(--ok); }
+.egg.empty { color: #7d8494; }
+.egg.empty i { width: 30px; height: 30px; border-radius: 50%; border: 1.5px dashed rgba(255, 255, 255, .3); box-sizing: border-box; }
+.egg.empty.perfect i { width: 36px; height: 36px; border-color: rgba(255, 211, 77, .45); }
+
+/* ---- Daily Activity card (under the profile): the game's full screen, folded into a card ---- */
+#daily-card {
+  position: fixed; z-index: 1002; left: 16px; top: 16px; width: 340px; max-height: calc(100vh - 32px); overflow: auto;
+  padding: 14px; border-radius: 18px; background: #eef0f6; color: #2f3646; box-shadow: 0 2px 10px rgba(0, 0, 0, .45);
+}
+#daily-card.hidden { display: none; }
+.daily-head { display: flex; align-items: baseline; gap: 10px; }
+.daily-head b { font-size: 20px; }
+#daily-left { font-size: 12px; color: #66708a; }
+#daily-close { margin-left: auto; flex: none; width: 30px; height: 30px; padding: 4px; border: 0; background: none; align-self: center; }
+#daily-close svg { width: 100%; height: 100%; fill: none; stroke: #2f3646; stroke-width: 2.6; stroke-linecap: round; }
+.daily-bar { position: relative; height: 34px; margin: 14px 18px 6px 4px; }
+.daily-bar .track { position: absolute; left: 0; right: 0; top: 15px; height: 4px; border-radius: 2px; background: #cdd3e1; }
+.daily-bar .fill { position: absolute; left: 0; top: 15px; height: 4px; border-radius: 2px; background: #3d8bff; }
+.daily-bar .score {
+  position: absolute; left: 0; top: 6px; padding: 0 8px; border-radius: 11px; background: #3d8bff; color: #fff;
+  font-weight: 700; font-size: 13px; line-height: 22px;
+}
+.daily-bar .chest {
+  position: absolute; top: 3px; width: 28px; height: 28px; transform: translateX(-50%); border-radius: 6px;
+  display: grid; place-items: center; background: #4a4f6a; color: #fff; font-size: 10px; font-weight: 700;
+}
+.daily-bar .chest.reached { background: #5b4aa0; }
+.daily-bar .chest.claimed::after { content: "\2713"; position: absolute; font-size: 16px; color: #5fd0ff; }
+.daily-bar .chest span { position: absolute; top: -14px; color: #2f3646; font-size: 11px; }
+.daily-task {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-top: 8px; padding: 9px 11px; border-radius: 12px;
+  background: #fff; border: 1px solid rgba(47, 54, 70, .1);
+}
+.daily-task b { font-size: 15px; }
+.daily-task .desc { grid-column: 1; font-size: 12px; color: #66708a; }
+.daily-task .points { grid-row: 1 / 3; grid-column: 2; align-self: center; font-weight: 700; color: #3d5a8a; }
+.daily-task.claimed { background: #dfe3ec; opacity: .75; }
+.daily-task.claimed .points::after { content: " \2713"; color: #2aa7d8; }
+.daily-full { margin: 10px 0 0; font-size: 12px; color: #66708a; text-align: center; }
+
 /* ---- bottom centre status bar ---- */
 #statusbar {
   position: fixed; z-index: 1000; left: 50%; bottom: 12px; transform: translateX(-50%);
@@ -361,7 +413,7 @@ button.icon.done svg { stroke: var(--ok); }
 
 /* ---- zoom bar (left), like the game's ---- */
 #zoombar {
-  position: fixed; z-index: 1000; left: 22px; top: 50%; transform: translateY(-50%);
+  position: fixed; z-index: 1000; left: 22px; bottom: 130px;   /* under the profile card, above the location */
   display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
 .zoom-step {

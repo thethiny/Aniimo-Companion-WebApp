@@ -192,9 +192,17 @@ function render() {
   const dy = state.calibration.z[0] * Math.cos(h);
   const deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
   const svg = player.getElement() && player.getElement().querySelector("svg");
-  if (svg) svg.style.transform = `rotate(${deg}deg)`;
+  if (svg) svg.style.transform = `rotate(${turnTo(deg)}deg)`;
   renderRoute();
   if (follow && !picking) map.panTo(ll, { animate: true, duration: 0.25, noMoveStart: true });
+}
+
+// The arrow's angle keeps counting past 360 so its turn animation always takes the short way round
+// (359 to 1 turns 2 degrees on, not 358 back)
+let arrowAngle = 0;
+function turnTo(deg) {
+  arrowAngle += ((((deg - arrowAngle) % 360) + 540) % 360) - 180;
+  return arrowAngle;
 }
 
 // ---- zoom bar on the left, like the game's map ----
@@ -800,7 +808,7 @@ function renderProfile() {
   setIcon($("profile-frame"), (profile.headFrames || {})[account.headFrame]);
   $("profile-name").textContent = account.name;
   $("profile-level").textContent = account.level ? `Lv. ${account.level}` : "";
-  const needed = (profile.levelExp || {})[account.level];
+  const needed = (profile.levelExp || {})[account.level + 1];   // a level's row holds the XP to reach it
   const showExp = needed && account.exp != null;
   $("profile-exp").textContent = showExp ? `${account.exp.toLocaleString()} / ${needed.toLocaleString()} XP` : "";
   $("exp-fill").style.width = showExp ? `${Math.min(100, (100 * account.exp) / needed)}%` : "0";
@@ -835,8 +843,106 @@ function tickProfile() {
       + `Daily reset ${new Date(reset * 1000).toLocaleString()}`
       + (weekly ? `\nWeekly reset ${new Date(weekly * 1000).toLocaleString()}` : "");
   }
+  renderDaily(now, reset);
+  renderBranches();
+  renderEggs(now);
 }
+
 setInterval(tickProfile, 1000);
+
+// ---- Daily Activity (a profile row; clicking it opens today's checklist) ----
+const TASK_CLAIMED = 3;                      // a task's state once its points are collected
+let dailyOpen = new URLSearchParams(location.search).has("daily");   // ?daily opens the checklist
+
+function renderDaily(now, reset) {
+  const daily = account.daily;
+  const config = (markData.profile || {}).daily || {};
+  $("daily").classList.toggle("hidden", !daily);
+  if (!daily) return;
+  const limit = config.limit || 0;
+  const full = limit && daily.score >= limit;
+  $("daily").classList.toggle("full", !!full);
+  $("daily-score").textContent = limit ? `${daily.score} / ${limit}` : `${daily.score}`;
+  $("daily-note").textContent = full ? "Today's points are full" : "";
+  $("daily-card").classList.toggle("hidden", !dailyOpen);
+  $("profile").classList.toggle("hidden", dailyOpen || !account.name);
+  if (!dailyOpen) return;
+  $("daily-left").textContent = reset ? `Time remaining: ${duration(reset - now)}` : "";
+  renderDailyBar(daily, config);
+  // Today's tasks are the ones the game handed out; open ones first, like the game
+  const tasks = (config.tasks || []).filter((t) => t.id in daily.tasks)
+    .sort((a, b) => (daily.tasks[a.id] === TASK_CLAIMED) - (daily.tasks[b.id] === TASK_CLAIMED));
+  setHtml($("daily-tasks"), tasks.map((t) => {
+    const claimed = daily.tasks[t.id] === TASK_CLAIMED;
+    return `<div class="daily-task ${claimed ? "claimed" : ""}"><b>${t.title || ""}</b>`
+      + `<span class="points">+${t.points}</span><span class="desc">${t.desc || ""}</span></div>`;
+  }).join("") + (full ? '<p class="daily-full">Today\'s Activity Points are full.</p>' : ""));
+}
+
+// The points bar: chests evenly spaced up to the cap, ticked once claimed
+function renderDailyBar(daily, config) {
+  const limit = config.limit || 1, chests = config.chests || [];
+  const fill = Math.min(100, (100 * daily.score) / limit);
+  setHtml($("daily-bar"), `<i class="track"></i><i class="fill" style="width:${fill}%"></i>`
+    + chests.map((id, i) => {
+      const at = Math.round((limit * (i + 1)) / chests.length);
+      const state = daily.tasks[id] === TASK_CLAIMED ? "claimed" : daily.score >= at ? "reached" : "";
+      return `<i class="chest ${state}" style="left:${(100 * at) / limit}%"><span>${at}</span></i>`;
+    }).join("") + `<b class="score">${daily.score}</b>`);
+}
+
+// Rewrites an element only when its content changed (these run every second)
+function setHtml(element, html) {
+  if (element.dataset.html !== html) element.innerHTML = element.dataset.html = html;
+}
+
+$("daily").onclick = () => { dailyOpen = true; tickProfile(); };
+$("daily-close").onclick = () => { dailyOpen = false; tickProfile(); };
+
+// ---- Branches: Lumin Amber not infused yet, and points infused toward the Branch's next level ----
+function renderBranches() {
+  const config = (markData.profile || {}).branches || {};
+  setHtml($("branches"), Object.entries(account.branches || {}).map(([id, branch]) => {
+    const info = config[id] || {};
+    const points = info.points || [];
+    const next = points.find((p) => p > branch.infused);
+    const amber = (account.money || {})[info.amber] || 0;
+    return `<div class="profile-row" title="${info.name || "Branch"}: ${info.amberName || "Lumin Amber"} not used yet">`
+      + `<img src="icons/${info.amberIcon}" alt=""><span class="profile-value"><b>${amber}</b><span>Lumin Amber</span></span>`
+      + `<span class="profile-note">${branch.infused}${next ? ` / ${next}` : ""} infused</span>`
+      + `<span class="profile-note">${info.name || ""}</span></div>`;
+  }).join(""));
+}
+
+// ---- eggs hatching: three slots like the game, the middle one for Perfect eggs only, the sides any egg ----
+const MIDDLE_SLOT = 1;
+
+function renderEggs(now) {
+  const eggs = account.eggs;
+  const info = (markData.profile || {}).eggs || {};
+  $("eggs").classList.toggle("hidden", !eggs);
+  if (!eggs) return;
+  const middle = eggs.find((e) => e.slot === MIDDLE_SLOT), sides = eggs.filter((e) => e.slot !== MIDDLE_SLOT);
+  const slots = [sides[0], middle, sides[1]];   // left, middle, right; undefined = empty
+  // Built once per set of eggs (rebuilding every second would restart the pictures); the times tick below
+  setHtml($("egg-slots"), slots.map((e, i) => {
+    const kind = i === 1 ? "perfect" : "";
+    if (!e) return `<span class="egg empty ${kind}" title="${i === 1 ? "Perfect eggs only" : "Any egg"}"><i></i><em>Empty</em></span>`;
+    const egg = info[e.egg] || {};
+    return `<span class="egg ${kind}" title="${egg.name || "Egg"}">`
+      + `<img src="icons/${egg.icon}" alt="" onerror="this.style.visibility='hidden'"><em></em></span>`;
+  }).join(""));
+  slots.forEach((e, i) => {
+    if (!e) return;
+    const left = e.endAt ? e.endAt - now : null;
+    const ready = left != null && left <= 0;
+    const cell = $("egg-slots").children[i];
+    cell.classList.toggle("ready", ready);
+    cell.querySelector("em").textContent = ready ? "Ready" : left != null ? duration(left) : "";
+  });
+  const next = Math.min(...eggs.map((e) => e.endAt || Infinity));
+  $("eggs-next").textContent = next === Infinity ? "" : next <= now ? "Ready to collect" : `next in ${duration(next - now)}`;
+}
 
 // The map's weather icons follow the time of day: clear nights show the moon, other weather gets a small moon
 function weatherIconFile(weatherId) {

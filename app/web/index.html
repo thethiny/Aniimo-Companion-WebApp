@@ -32,6 +32,30 @@
     <span class="profile-note" id="reset-in"></span>
     <span class="profile-note" id="reset-at"></span>
   </div>
+  <button class="profile-row" id="daily" title="Show today's tasks">
+    <svg viewBox="0 0 24 24"><path d="M12 3c3 4 6 6.5 6 10.5a6 6 0 0 1-12 0C6 9.5 9 7 12 3z"/><circle cx="12" cy="14" r="2.2"/></svg>
+    <span class="profile-value"><b>Daily Activity</b></span>
+    <span class="profile-note" id="daily-score"></span>
+    <span class="profile-note" id="daily-note"></span>
+  </button>
+  <div id="branches"></div>
+  <div class="profile-row" id="eggs">
+    <svg viewBox="0 0 24 24"><path d="M12 3c3.6 0 6.5 5.4 6.5 10a6.5 6.5 0 0 1-13 0C5.5 8.4 8.4 3 12 3z"/></svg>
+    <span class="profile-value"><b>Hatching</b></span>
+    <span class="profile-note" id="eggs-next"></span>
+    <span class="egg-slots" id="egg-slots"></span>
+  </div>
+</section>
+
+<!-- Daily Activity checklist, opened from the profile: points bar with its reward chests, today's tasks -->
+<section id="daily-card" class="hidden">
+  <div class="daily-head">
+    <b>Daily Activity</b>
+    <span id="daily-left"></span>
+    <button id="daily-close" title="Close"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+  </div>
+  <div class="daily-bar" id="daily-bar"></div>
+  <div id="daily-tasks"></div>
 </section>
 
 <!-- Bottom centre: connection status, cursor position, route, and the view buttons -->
