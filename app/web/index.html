@@ -10,14 +10,37 @@
 <body>
 <div id="map"></div>
 
-<section class="panel" id="info">
-  <div class="row status" id="status">Connecting...</div>
-  <div class="row muted" id="route"></div>
-  <div class="row muted" id="cursor"></div>
-  <div class="buttons">
-    <button id="fit" title="Fit the island you're on to the screen">Fit</button>
-    <button id="calibrate" title="Click where you are on the map to add a reference point">Calibrate</button>
+<!-- Top-left player profile: picture in its frame, name, level, Primegy and the server's resets -->
+<section id="profile" class="hidden">
+  <div class="profile-head">
+    <span class="profile-picture"><img id="profile-icon" alt=""><img id="profile-frame" alt=""></span>
+    <span class="profile-name">
+      <b id="profile-name"></b>
+      <span class="profile-level"><span id="profile-level"></span><span id="profile-exp"></span></span>
+      <span class="exp-bar"><i id="exp-fill"></i></span>
+    </span>
   </div>
+  <div class="profile-row" id="primegy">
+    <img id="primegy-icon" alt="">
+    <span class="profile-value"><b id="primegy-value">-</b><span id="primegy-max"></span></span>
+    <span class="profile-note" id="primegy-next"></span>
+    <span class="profile-note" id="primegy-full"></span>
+  </div>
+  <div class="profile-row" id="reset">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+    <span class="profile-value"><b>Next Day</b></span>
+    <span class="profile-note" id="reset-in"></span>
+    <span class="profile-note" id="reset-at"></span>
+  </div>
+</section>
+
+<!-- Bottom centre: connection status, cursor position, route, and the view buttons -->
+<section id="statusbar">
+  <span class="status" id="status">Connecting...</span>
+  <span class="muted" id="cursor"></span>
+  <span class="muted" id="route"></span>
+  <button id="fit" title="Fit the island you're on to the screen">Fit</button>
+  <button id="calibrate" title="Click where you are on the map to add a reference point">Calibrate</button>
 </section>
 
 <!-- Bottom-left location panel, laid out like the game's map screen -->

@@ -98,5 +98,5 @@ class MarkStore:
         spawns = {proto: scenes[str(scene)] for proto, scenes in static.get("spawns", {}).items() if str(scene) in scenes}
         return {"types": types, "groups": static.get("groups", []), "blocks": static.get("blocks", {}),
                 "pets": static.get("pets", {}), "spawns": spawns, "weathers": static.get("weathers", {}),
-                "marks": list(marks.values()), "areas": scene_static.get("areas", []),
+                "profile": static.get("profile", {}), "marks": list(marks.values()), "areas": scene_static.get("areas", []),
                 "fit": fit_world_to_map(live.values())}

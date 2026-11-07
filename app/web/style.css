@@ -36,6 +36,49 @@ button {
 button:hover { background: rgba(255, 255, 255, 0.16); }
 button.on { background: var(--accent); color: #1b1300; border-color: var(--accent); }
 
+/* ---- top-left player profile ---- */
+#profile {
+  position: fixed; z-index: 1000; left: 16px; top: 16px; width: 280px; padding: 10px 14px 10px 10px;
+  border-radius: 18px; background: rgba(38, 44, 62, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .45); color: #fff;
+}
+#profile.hidden { display: none; }
+.profile-head { display: flex; align-items: center; gap: 10px; }
+.profile-picture { position: relative; flex: none; width: 64px; height: 64px; }
+#profile-icon {
+  position: absolute; inset: 9px; width: 46px; height: 46px; border-radius: 50%; object-fit: cover; background: #c9d3e0;
+}
+#profile-frame { position: absolute; inset: 0; width: 64px; height: 64px; object-fit: contain; }
+#profile-frame:not([src]), #profile-frame[src=""] { display: none; }
+.profile-name { flex: 1; display: grid; gap: 2px; min-width: 0; line-height: 1.15; }
+#profile-name { font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-level { display: flex; justify-content: space-between; font-size: 14px; color: #c9d1dd; font-variant-numeric: tabular-nums; }
+#profile-exp { font-size: 11px; color: #9aa3b4; }
+.exp-bar { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .16); overflow: hidden; }
+.exp-bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #6fb6ff, #9fe3ff); }
+/* Icon on the left spanning two lines; value and the next step on the first, the longer wait under it */
+.profile-row {
+  display: grid; grid-template-columns: 24px auto 1fr; column-gap: 8px; row-gap: 1px; align-items: center;
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .14); font-variant-numeric: tabular-nums;
+}
+.profile-row.hidden { display: none; }
+.profile-row > img, .profile-row > svg { grid-row: span 2; width: 24px; height: 24px; object-fit: contain; }
+.profile-row > svg { fill: none; stroke: #c9d1dd; stroke-width: 2; stroke-linecap: round; }
+.profile-value { display: flex; align-items: baseline; gap: 3px; white-space: nowrap; }
+.profile-value b { font-size: 16px; }
+.profile-value span { font-size: 12px; color: #c9d1dd; }
+.profile-note { font-size: 12px; color: #c9d1dd; white-space: nowrap; text-align: right; }
+.profile-note + .profile-note { grid-column: 2 / 4; text-align: left; color: #9aa3b4; }
+.profile-note:empty { display: none; }
+#primegy.full b { color: var(--accent); }
+
+/* ---- bottom centre status bar ---- */
+#statusbar {
+  position: fixed; z-index: 1000; left: 50%; bottom: 12px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 14px; border-radius: 18px; white-space: nowrap;
+  background: var(--panel); border: 1px solid var(--border); backdrop-filter: blur(6px);
+}
+#statusbar button { flex: none; padding: 3px 10px; }
+
 /* ---- bottom-left location, like the game's map screen ---- */
 #location {
   position: fixed; z-index: 1000; left: 0; bottom: 0; display: flex; align-items: center; gap: 14px;
@@ -352,11 +395,18 @@ button.icon.done svg { stroke: var(--ok); }
 
 @media (max-width: 520px) {
   .panel { left: 8px; right: 8px; top: 8px; width: auto; }
-  #filters { top: 96px; right: 8px; width: 240px; max-height: calc(100vh - 220px); }
+  #profile { left: 8px; top: 8px; width: 230px; padding: 8px 10px 8px 8px; }
+  .profile-picture, #profile-frame { width: 48px; height: 48px; }
+  #profile-icon { inset: 7px; width: 34px; height: 34px; }
+  #profile-name { font-size: 17px; }
+  .profile-row { margin-top: 5px; padding-top: 5px; }
+  #statusbar { bottom: auto; top: 8px; left: auto; right: 8px; transform: none; flex-wrap: wrap; max-width: calc(100vw - 254px); }
+  #statusbar #cursor, #statusbar #route { display: none; }
+  #filters { top: 200px; right: 8px; width: 240px; max-height: calc(100vh - 220px); }
   #calib { left: 8px; right: 8px; width: auto; top: auto; bottom: 110px; transform: none; }
   #area { left: 8px; right: 8px; width: auto; top: auto; bottom: 110px; max-height: 60vh; }
   #area-pets { --hex: 60px; --hex-gap: 9px; }
-  #track { top: 64px; height: 52px; }
+  #track { top: 136px; height: 52px; }
   .track-portrait, #track-icon .head { width: 44px; height: 44px; }
   #track-name { font-size: 19px; }
   #track-form { font-size: 13px; }

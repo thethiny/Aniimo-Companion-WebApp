@@ -714,8 +714,9 @@ async function getJson(url) {
 
 async function loadHandbook() {
   try {
-    const [book, sky] = await Promise.all([getJson("api/handbook"), getJson("api/weather")]);
+    const [book, sky, me] = await Promise.all([getJson("api/handbook"), getJson("api/weather"), getJson("api/profile")]);
     handbook = Object.assign({ states: {}, blockCaught: {}, tracked: null }, book);
+    account = me;
     weather = sky.weather || {};
     timePeriod = sky.timePeriod || null;
   } catch (e) {
@@ -725,8 +726,117 @@ async function loadHandbook() {
   renderAreaPanel();
   renderTracking();
   renderTimeOfDay();
+  renderProfile();
 }
 setInterval(loadHandbook, HANDBOOK_POLL_MS);
+
+// ---- player profile (top left): picture, name, level, Primegy and the server's daily reset ----
+let account = {};                              // /api/profile, live from the game
+const DAY = 86400, WEEK = 7 * DAY;            // seconds
+const RESET_HOUR = 4;                         // servers reset at 4 AM their own time
+// Server regions by their time zone (hours from UTC), as the game's server list groups them
+const SERVER_REGIONS = { 8: "Asia", 0: "Europe", "-4": "Americas", "-5": "Americas" };
+
+// The first moment after now that is `start` plus a whole number of periods
+function nextAfter(start, period, now) {
+  return start + Math.max(1, Math.ceil((now - start) / period)) * period;
+}
+
+// The server's next daily reset: from the last one it ran (live), else from its region's day start (config)
+function nextDailyReset(now) {
+  const start = account.dayReset || (markData.profile || {}).serverDayStart?.[account.serverArea];
+  return start ? nextAfter(start, DAY, now) : null;
+}
+
+// The server region and its time zone, from when its day starts (its 4 AM): {name, zone}
+function serverRegion() {
+  const start = (markData.profile || {}).serverDayStart?.[account.serverArea];
+  if (!start) return null;
+  let hours = RESET_HOUR - (((start % DAY) + DAY) % DAY) / 3600;
+  if (hours <= -12) hours += 24;
+  const zone = `UTC${hours >= 0 ? "+" : "−"}${Math.abs(hours)}`;
+  return { name: SERVER_REGIONS[hours] || zone, zone };
+}
+
+// Primegy now: the game sends the count and when the next point comes; count on from there until full
+function primegyNow(now) {
+  const energy = account.primegy || {};
+  const info = (markData.profile || {}).primegy || {};
+  let { value, nextAt } = energy;
+  if (value == null) return null;
+  const seconds = info.seconds || 360, gain = info.gain || 1, max = energy.max || Infinity;
+  if (nextAt && value < max && now >= nextAt) {
+    const steps = 1 + Math.floor((now - nextAt) / seconds);
+    value = Math.min(max, value + steps * gain);
+    nextAt += steps * seconds;
+  }
+  const full = value >= max;
+  return { value, max: energy.max, nextAt: full ? null : nextAt,
+           fullAt: full || !nextAt ? null : nextAt + (Math.ceil((max - value) / gain) - 1) * seconds };
+}
+
+function duration(seconds) {
+  seconds = Math.max(0, Math.round(seconds));
+  const d = Math.floor(seconds / DAY), h = Math.floor((seconds % DAY) / 3600), m = Math.floor((seconds % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function clockTime(unix) {
+  return new Date(unix * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function setIcon(img, file) {
+  if (file) img.src = `icons/${file}`;
+  else img.removeAttribute("src");
+}
+
+function renderProfile() {
+  const profile = markData.profile || {};
+  $("profile").classList.toggle("hidden", !account.name);
+  if (!account.name) return;
+  setIcon($("profile-icon"), (profile.headIcons || {})[account.headIcon]);
+  setIcon($("profile-frame"), (profile.headFrames || {})[account.headFrame]);
+  $("profile-name").textContent = account.name;
+  $("profile-level").textContent = account.level ? `Lv. ${account.level}` : "";
+  const needed = (profile.levelExp || {})[account.level];
+  const showExp = needed && account.exp != null;
+  $("profile-exp").textContent = showExp ? `${account.exp.toLocaleString()} / ${needed.toLocaleString()} XP` : "";
+  $("exp-fill").style.width = showExp ? `${Math.min(100, (100 * account.exp) / needed)}%` : "0";
+  const primegy = profile.primegy || {};
+  setIcon($("primegy-icon"), primegy.icon);
+  $("primegy").title = [primegy.name, primegy.desc].filter(Boolean).join("\n");
+  tickProfile();
+}
+
+// Countdowns move every second between reads
+function tickProfile() {
+  if (!account.name) return;
+  const now = Date.now() / 1000;
+  const energy = primegyNow(now);
+  $("primegy").classList.toggle("hidden", !energy);
+  if (energy) {
+    $("primegy-value").textContent = energy.value;
+    $("primegy-max").textContent = energy.max ? `/${energy.max}` : "";
+    $("primegy").classList.toggle("full", !energy.nextAt);
+    $("primegy-next").textContent = energy.nextAt ? `+1 in ${duration(energy.nextAt - now)}` : "Full";
+    $("primegy-full").textContent = energy.fullAt
+      ? `Full in ${duration(energy.fullAt - now)} (${clockTime(energy.fullAt)})` : "";
+  }
+  const reset = nextDailyReset(now);
+  $("reset").classList.toggle("hidden", !reset);
+  if (reset) {
+    const region = serverRegion();
+    $("reset-in").textContent = `in ${duration(reset - now)}`;
+    $("reset-at").textContent = [clockTime(reset), region && region.name].filter(Boolean).join(" · ");
+    const weekly = account.weekReset ? nextAfter(account.weekReset, WEEK, now) : null;
+    $("reset").title = (region ? `${region.name} server (${region.zone}), resets at ${RESET_HOUR} AM its time\n` : "")
+      + `Daily reset ${new Date(reset * 1000).toLocaleString()}`
+      + (weekly ? `\nWeekly reset ${new Date(weekly * 1000).toLocaleString()}` : "");
+  }
+}
+setInterval(tickProfile, 1000);
 
 // The map's weather icons follow the time of day: clear nights show the moon, other weather gets a small moon
 function weatherIconFile(weatherId) {

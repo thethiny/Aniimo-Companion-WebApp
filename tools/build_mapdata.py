@@ -28,6 +28,8 @@ SPAWN_DECIMALS = 1
 # Per-area lists of Aniimo that only appear in some weather (the badge on their portrait in game)
 CONDITIONS = ("snow", "rain", "thunder", "storm", "aurora")
 TIER_KEYS = ("unlockReward1", "unlockReward2", "unlockReward3")   # bronze / silver / gold completion
+PRIMEGY = 1009             # Primegy's item, currency and energy id
+OFFICIAL_SERVERS = 2       # open_server_time_data row of the live servers (1 is the developers' test server)
 
 
 def text_of(text, value):
@@ -127,6 +129,23 @@ def build_spawns(pm):
     return spawns
 
 
+def build_profile(pm, text):
+    """What the player profile needs besides your live data: picture and frame files by id, the XP each
+    level needs to the next, Primegy's name, icon and recovery, and per server region a moment its day
+    starts (the daily reset)."""
+    heads = {i: icon_name(row.get("res")) for i, row in pm.table("player_head_icon_data").items()}
+    frames = {i: icon_name(row.get("res")) for i, row in pm.table("player_head_frame_data").items()}
+    item = pm.table("item_data", depth=0).get(PRIMEGY) or {}
+    recovery = pm.table("currency_auto_change_data", depth=2).get(PRIMEGY) or {}
+    servers = pm.table("open_server_time_data", depth=2).get(OFFICIAL_SERVERS) or {}
+    level_exp = {level: row.get("needExp") for level, row in pm.table("player_level_data").items()}
+    return {"headIcons": heads, "headFrames": frames, "levelExp": level_exp,
+            "primegy": {"name": text_of(text, item.get("itemName")), "desc": text_of(text, item.get("itemDes")),
+                        "icon": icon_name(item.get("icon")), "seconds": recovery.get("cycleValue"),
+                        "gain": recovery.get("changeValue")},
+            "serverDayStart": servers.get("time", {})}
+
+
 def main():
     pm, text = PmData(), Text()
     types, groups = build_types(pm, text)
@@ -149,7 +168,7 @@ def main():
     used = {m["type"] for s in scenes.values() for m in s["marks"]}
     out = {"types": {t: v for t, v in types.items() if t in used or v["group"] != OTHER_GROUP},
            "groups": groups, "blocks": blocks, "pets": pets, "spawns": spawns,
-           "weathers": weathers, "scenes": scenes}
+           "weathers": weathers, "scenes": scenes, "profile": build_profile(pm, text)}
     json.dump(out, open(os.path.join(WEB, "mapdata.json"), "w", encoding="utf-8"), ensure_ascii=False,
               separators=(",", ":"))
     total = sum(len(s["marks"]) for s in scenes.values())

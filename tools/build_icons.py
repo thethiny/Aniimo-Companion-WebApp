@@ -1,6 +1,8 @@
-# Extracts the game's map mark icons, Aniimo portraits and weather icons into app/web/icons/.
+# Extracts the game's map mark icons, Aniimo portraits, weather icons and player heads / head frames into
+# app/web/icons/.
 # Which assets are icons comes from the asset manifest's string table (their folder); the images are in
-# the mres_xgui_texture_expng and pet head bundles, and in the xpt<N> patch bundles (highest N wins).
+# the mres_xgui_texture_expng, pet head and item icon bundles, and in the xpt<N> patch bundles (highest N
+# wins).
 # Usage: python build_icons.py
 import glob
 import os
@@ -11,13 +13,15 @@ from PIL import Image
 
 from game import BUNDLES, MANIFESTS  # noqa: E402  (found through the running game)
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web", "icons")
-ICON_FOLDERS = ("/Texture/Icon/Map_MarkPoint/", "/Texture/Image/Pet_head/", "/Texture/Icon/Weather/")
+ICON_FOLDERS = ("/Texture/Icon/Map_MarkPoint/", "/Texture/Image/Pet_head/", "/Texture/Icon/Weather/",
+                "/Texture/Icon/Player_head/", "/Texture/Image/Head_Frame/")
 BUNDLE_PATTERNS = (r"^mres_xgui_texture_expng_", r"^ar_xgui_image_pet_he_", r"^mres_xgui_panel_expng_",
-                   r"^mres_xgui_common_expng_")
+                   r"^mres_xgui_common_expng_", r"^ar_xgui_icon_item_i_")
 # Single sprites from the map's own atlases: the small moon the map adds to weather icons at night, the
-# blue wink it shows when a weather-exclusive Aniimo is out, and the area panel's cat and crown
+# blue wink it shows when a weather-exclusive Aniimo is out, and the area panel's cat and crown. Items
+# picked one by one (the item folder holds thousands): Primegy for the player profile
 EXTRA_ICONS = {"UI_Img_moon_small", "UI_Map_Icon_Weather5", "UI_Img_Map_PetArea_FloatTab_Pet_Nml",
-               "UI_Img_Map_PetArea_Gather_Schedule_Icon"}
+               "UI_Img_Map_PetArea_Gather_Schedule_Icon", "ui_item_1009"}
 PATCH_PATTERN = re.compile(r"^xpt(\d+)_mres_expng_")   # hot patches: newer icons and replacements
 MAX_SIZE = 96   # icons are drawn at ~30 px; keep some headroom for high-DPI screens
 

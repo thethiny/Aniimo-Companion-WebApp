@@ -60,10 +60,15 @@ def _still_valid(proc, found):
 _where = lua.Located(_locate, _still_valid)
 
 
+def where(proc):
+    """{"player": your property table, "mapSystem": ...}, found once and shared (profile.py reads it too)"""
+    return _where.get(proc)
+
+
 def collect(proc):
     """{"states": {protoId: stateMask}, "blockCaught": {blockId: [protoId]}, "tracked": protoId or None,
         "starTitle": n, "level": n}"""
-    found = _where.get(proc)
+    found = where(proc)
     player = (lua.read_table(proc, found["player"], depth=0) or {}) if found["player"] else {}
     handbook = lua.synced_children(proc, lua.table_ref(player.get(KEY_HANDBOOK)), MIN_ID)
     states = {proto: int(entry["stateMask"]) for proto, entry in handbook.items() if isinstance(entry.get("stateMask"), float)}
