@@ -7,6 +7,7 @@
 #   energyAutoLimit                            and where natural recovery stops
 #   activityDailyActive                        Daily Activity: dailyActiveScore and per task its state
 #   leylineTreeInfoMap / commonMoneyNums       per region Branch: points infused; its Lumin Amber not used yet
+#   skillNodeMap                               {talent id: {lv}}: the talents you've learned and their level
 #   hatchSlotMap                               {slot: {status, endTs, item: {id}, speedUpTime}}: eggs hatching
 #                                              (filled once you open the hatch screen; slot 1 is the middle)
 # The server updates the count and the next time on every point, so between reads the page counts on
@@ -65,7 +66,7 @@ def _eggs(proc, player):
 def collect(proc):
     """{"name", "level", "exp", "headIcon", "headFrame", "serverArea", "dayReset", "weekReset",
         "primegy": {"value", "max", "nextAt"}, "daily": {"score", "tasks"}, "eggs": [...], "branches": {...},
-        "money": {item id: count}}; times are Unix seconds"""
+        "talents": {talent id: level}, "money": {item id: count}}; times are Unix seconds"""
     player = handbook.live_player(proc)
     name = player.get("playerName")
     if not isinstance(name, str) or not name:
@@ -81,4 +82,6 @@ def collect(proc):
             "daily": handbook.newest(proc, lambda fields: _daily_activity(proc, fields)),
             "eggs": handbook.newest(proc, lambda fields: _eggs(proc, fields)),   # None until known
             "branches": _branches(proc, player),
+            "talents": {talent: _int(fields.get("lv")) for talent, fields in
+                        lua.synced_children(proc, lua.table_ref(player.get("skillNodeMap")), 1).items()},
             "money": {item: int(count) for item, count in money.items() if isinstance(item, int) and isinstance(count, float)}}

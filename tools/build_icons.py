@@ -11,7 +11,7 @@ import re
 import UnityPy
 from PIL import Image
 
-from build_mapdata import PRIMEGY, icon_name
+from build_mapdata import PRIMEGY, SKILL_POINT, icon_name
 from game import BUNDLES, MANIFESTS  # noqa: E402  (found through the running game)
 from pmdata import PmData
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web", "icons")
@@ -43,11 +43,12 @@ def icon_names():
 
 
 def config_icons():
-    """Item icons the player profile shows: Primegy, every egg that hatches and each region's Lumin Amber."""
+    """Item icons the player profile shows: Primegy, Skill Points, every egg that hatches and each region's
+    Lumin Amber."""
     pm = PmData()
     items = pm.table("item_data", depth=0)
     ambers = {levels.get("0", levels.get(0, {})).get("stoneId") for levels in pm.table("leylinetree_data", depth=2).values()}
-    wanted = {PRIMEGY} | set(pm.table("pet_hatch_egg_data")) | ambers
+    wanted = {PRIMEGY, SKILL_POINT} | set(pm.table("pet_hatch_egg_data")) | ambers
     names = (icon_name((items.get(item) or {}).get("icon")) for item in wanted)
     return {os.path.splitext(name)[0] for name in names if name}
 

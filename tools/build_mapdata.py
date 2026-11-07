@@ -31,6 +31,8 @@ TIER_KEYS = ("unlockReward1", "unlockReward2", "unlockReward3")   # bronze / sil
 PRIMEGY = 1009             # Primegy's item, currency and energy id
 OFFICIAL_SERVERS = 2       # open_server_time_data row of the live servers (1 is the developers' test server)
 DAILY_ACTIVITY = 10000024  # event activity id of Daily Activity
+SKILL_POINT = 1000         # Report Card: the Skill Point talents are learned with
+TALENT_TREES = {1: "active", 2: "passive"}   # player_skill_tree_data abilityType of the two talent tabs
 DAILY_TASK, DAILY_CHEST = 121, 122   # event_task_data actTaskType: a task, a reward chest along the bar
 
 
@@ -215,6 +217,21 @@ def build_quests(pm, text):
     return {"names": names, "steps": steps}
 
 
+def build_talents(pm, text):
+    """Talents: the Skill Point item (name, icon) and per talent its tab ("active" / "passive") and the
+    Skill Points each level costs, so the page can add up what you've spent on each tab."""
+    tree = pm.table("player_skill_tree_data")
+    item = pm.table("item_data", depth=0).get(SKILL_POINT) or {}
+    talents = {}
+    for talent, levels in pm.table("player_skill_data", depth=3).items():
+        tab = TALENT_TREES.get((tree.get(talent) or {}).get("abilityType"))
+        if tab:
+            costs = [(levels[level].get("needItem") or {}).get(SKILL_POINT, 0) for level in sorted(levels)]
+            talents[talent] = {"tab": tab, "costs": costs}
+    return {"point": SKILL_POINT, "pointName": text_of(text, item.get("itemName")), "pointIcon": icon_name(item.get("icon")),
+            "talents": talents}
+
+
 def build_profile(pm, text):
     """What the player profile needs besides your live data: picture and frame files by id, the XP to reach
     each level (from the one before), Primegy's name, icon and recovery, and per server region a moment its day
@@ -231,7 +248,8 @@ def build_profile(pm, text):
                         "gain": recovery.get("changeValue")},
             "serverDayStart": servers.get("time", {}),
             "daily": build_daily_activity(pm, text), "eggs": build_eggs(pm, text),
-            "branches": build_branches(pm, text), "quests": build_quests(pm, text)}
+            "branches": build_branches(pm, text), "quests": build_quests(pm, text),
+            "talents": build_talents(pm, text)}
 
 
 def main():

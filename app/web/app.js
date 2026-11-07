@@ -847,6 +847,7 @@ function tickProfile() {
       + (weekly ? `\nWeekly reset ${new Date(weekly * 1000).toLocaleString()}` : "");
   }
   renderDaily(now, reset);
+  renderTalents();
   renderBranches();
   renderEggs(now);
 }
@@ -901,6 +902,23 @@ function setHtml(element, html) {
 
 $("daily").onclick = () => { dailyOpen = true; tickProfile(); };
 $("daily-close").onclick = () => { dailyOpen = false; tickProfile(); };
+
+// ---- Skill Points: unspent (Report Cards) and spent per talent tab, like the game's Talents screen ----
+function renderTalents() {
+  const config = (markData.profile || {}).talents || {};
+  const learned = account.talents;
+  $("talents").classList.toggle("hidden", !learned || !config.point);
+  if (!learned || !config.point) return;
+  const spent = { active: 0, passive: 0 };
+  for (const [id, level] of Object.entries(learned)) {
+    const talent = (config.talents || {})[id];
+    if (talent) spent[talent.tab] += talent.costs.slice(0, level).reduce((a, b) => a + b, 0);
+  }
+  setIcon($("talents-icon"), config.pointIcon);
+  $("talents-points").textContent = (account.money || {})[config.point] || 0;
+  $("talents-spent").textContent = `Active ${spent.active} · Passive ${spent.passive}`;
+  $("talents").title = `${config.pointName || "Skill Points"} not spent yet; spent on Active Skills and Passive Talents`;
+}
 
 // ---- Branches: Lumin Amber not infused yet, and points infused toward the Branch's next level ----
 function renderBranches() {
