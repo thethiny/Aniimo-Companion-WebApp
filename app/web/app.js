@@ -1,6 +1,10 @@
 // Aniimo live map: polls /api/state and draws the player on the game's own map tiles.
 const POLL_MS = 200;
 const $ = (id) => document.getElementById(id);
+// Offline map (tools/build_offline.py): static files instead of the server, and no player data at all
+const OFFLINE = window.OFFLINE_MAP === true;
+const dataUrl = (api, file) => (OFFLINE ? `offline/${file}` : api);
+const liveInterval = (fn, ms) => { if (!OFFLINE) setInterval(fn, ms); };   // live re-reads; offline data never changes
 
 const map = L.map("map", { crs: L.CRS.Simple, zoomControl: false, attributionControl: false, zoomSnap: 0.25 });
 
@@ -93,10 +97,10 @@ function loadAreas(id, info) {
 
 async function refreshAreaNames() {
   try {
-    areaNames = await (await fetch("api/areas", { cache: "no-store" })).json();
+    areaNames = await (await fetch(dataUrl("api/areas", `areas/${current.id}.json`), { cache: "no-store" })).json();
   } catch (e) { /* keep what we have */ }
 }
-setInterval(refreshAreaNames, 60000);
+liveInterval(refreshAreaNames, 60000);
 
 function areaIndexAt(px, py) {
   if (!areaGrid || !current || areaGrid.scene !== current.id) return 0;
@@ -402,6 +406,10 @@ map.on("mousemove", (e) => {
   const p = toPixel(e.latlng);
   const [wx, wz] = pixelToWorld(p.x, p.y);
   $("cursor").textContent = `Cursor  X ${wx.toFixed(0)}  Z ${wz.toFixed(0)}`;
+  if (OFFLINE) {   // no player: the location panel follows the cursor instead
+    renderLocation(p.x, p.y);
+    $("coords").textContent = gameCoords({ x: wx, z: wz });
+  }
 });
 
 // ---- calibration ----
@@ -483,15 +491,19 @@ function localStorageSet(key, value) {
 
 async function loadMarks() {
   try {
-    markData = await (await fetch("api/marks", { cache: "no-store" })).json();
+    markData = await (await fetch(dataUrl("api/marks", `marks/${current.id}.json`), { cache: "no-store" })).json();
   } catch (e) {
     return;
+  }
+  if (OFFLINE) {   // the profile's config came with the marks
+    account = maxedAccount(markData.profile || {});
+    renderProfile();
   }
   drawMarks();
   renderAreaPanel();
   renderTracking();
 }
-setInterval(loadMarks, 60000);
+liveInterval(loadMarks, 60000);
 
 // Map pixel of a mark: the game's own map position, else its world position through the fitted transform
 function markPixel(mark) {
@@ -803,10 +815,27 @@ async function loadHandbook() {
   renderProfile();
   renderQuests();
 }
-setInterval(loadHandbook, HANDBOOK_POLL_MS);
+liveInterval(loadHandbook, HANDBOOK_POLL_MS);
 
 // ---- player profile (top left): picture, name, level, Primegy and the server's daily reset ----
 let account = {};                              // /api/profile, live from the game
+const NO_NEXT_LEVEL_EXP = 99999999;           // player_level_data's XP for the level after the last one
+
+// The offline map's player, as an overview of the game's maximums: top rank and level, full Primegy, every
+// talent and Branch maxed, three empty hatch slots, with the game's own picture (no Daily Activity: it's
+// about today)
+function maxedAccount(profile) {
+  const levels = Object.entries(profile.levelExp || {}).filter(([, exp]) => exp < NO_NEXT_LEVEL_EXP).map(([l]) => +l);
+  const branches = Object.fromEntries(Object.entries(profile.branches || {}).map(([id, b]) =>
+    [id, { infused: (b.points || []).slice(-1)[0] || 0, level: (b.points || []).length }]));
+  const talents = Object.fromEntries(Object.entries((profile.talents || {}).talents || {}).map(([id, t]) => [id, t.costs.length]));
+  const limit = (profile.primegy || {}).limit;
+  return { name: OFFLINE_PLAYER, level: levels.length ? Math.max(...levels) : null, exp: 0,
+           rank: Math.max(...Object.keys(profile.ranks || { 0: 1 }).map(Number)),
+           headIcon: Math.min(...Object.keys(profile.headIcons || { 0: 1 }).map(Number)), headFrame: null,
+           primegy: { value: limit, max: limit, nextAt: null }, eggs: [], branches, talents, money: {} };
+}
+const OFFLINE_PLAYER = "Pathfinder";          // what the game calls the player
 const DAY = 86400, WEEK = 7 * DAY;            // seconds
 const RESET_HOUR = 4;                         // servers reset at 4 AM their own time
 // Server regions by their time zone (hours from UTC), as the game's server list groups them
@@ -882,9 +911,10 @@ function renderProfile() {
     $("rank-name").textContent = rank.name;
   }
   const needed = (profile.levelExp || {})[account.level + 1];   // a level's row holds the XP to reach it
-  const showExp = needed && account.exp != null;
-  $("profile-exp").textContent = showExp ? `${account.exp.toLocaleString()} / ${needed.toLocaleString()} XP` : "";
-  $("exp-fill").style.width = showExp ? `${Math.min(100, (100 * account.exp) / needed)}%` : "0";
+  const maxed = needed >= NO_NEXT_LEVEL_EXP;
+  const showExp = needed && account.exp != null && !maxed;
+  $("profile-exp").textContent = maxed ? "Max level" : showExp ? `${account.exp.toLocaleString()} / ${needed.toLocaleString()} XP` : "";
+  $("exp-fill").style.width = maxed ? "100%" : showExp ? `${Math.min(100, (100 * account.exp) / needed)}%` : "0";
   const primegy = profile.primegy || {};
   setIcon($("primegy-icon"), primegy.icon);
   $("primegy").title = [primegy.name, primegy.desc].filter(Boolean).join("\n");
@@ -985,9 +1015,11 @@ function renderTalents() {
     if (talent) spent[talent.tab] += talent.costs.slice(0, level).reduce((a, b) => a + b, 0);
   }
   setIcon($("talents-icon"), config.pointIcon);
-  $("talents-points").textContent = (account.money || {})[config.point] || 0;
+  // Offline: the Skill Points every talent takes (all learned), split by tab
+  $("talents-points").textContent = OFFLINE ? spent.active + spent.passive : (account.money || {})[config.point] || 0;
   $("talents-spent").textContent = `Active ${spent.active} · Passive ${spent.passive}`;
-  $("talents").title = `${config.pointName || "Skill Points"} not spent yet; spent on Active Skills and Passive Talents`;
+  $("talents").title = OFFLINE ? `${config.pointName || "Skill Points"} it takes to learn every Active Skill and Passive Talent`
+    : `${config.pointName || "Skill Points"} not spent yet; spent on Active Skills and Passive Talents`;
 }
 
 // ---- Branches: Lumin Amber not infused yet, and points infused toward the Branch's next level ----
@@ -997,10 +1029,13 @@ function renderBranches() {
     const info = config[id] || {};
     const points = info.points || [];
     const next = points.find((p) => p > branch.infused);
-    const amber = (account.money || {})[info.amber] || 0;
-    return `<div class="profile-row" title="${info.name || "Branch"}: ${info.amberName || "Lumin Amber"} not used yet">`
+    // Offline: the Lumin Amber the Branch takes in all, nothing about yours
+    const amber = OFFLINE ? branch.infused : (account.money || {})[info.amber] || 0;
+    const title = OFFLINE ? `${info.name || "Branch"}: ${info.amberName || "Lumin Amber"} it takes to infuse it fully`
+      : `${info.name || "Branch"}: ${info.amberName || "Lumin Amber"} not used yet`;
+    return `<div class="profile-row" title="${title}">`
       + `<img src="icons/${info.amberIcon}" alt=""><span class="profile-value"><b>${amber}</b><span>Lumin Amber</span></span>`
-      + `<span class="profile-note">${branch.infused}${next ? ` / ${next}` : ""} infused</span>`
+      + `<span class="profile-note">${OFFLINE ? "Fully infused" : `${branch.infused}${next ? ` / ${next}` : ""} infused`}</span>`
       + `<span class="profile-note">${info.name || ""}</span></div>`;
   }).join(""));
 }
@@ -1110,6 +1145,7 @@ function renderTimeOfDay() {
 // Caught in this area (what the game's completion counts), else seen anywhere, else unseen
 // Caught in this area, else seen anywhere, else unseen
 function petState(proto, blockId) {
+  if (OFFLINE) return "caught";   // the offline map shows every Aniimo as you'd see it once caught
   if ((handbook.blockCaught[blockId] || []).includes(+proto)) return "caught";
   return (handbook.states[proto] || 0) & STATE_KNOWN ? "seen" : "unseen";
 }
@@ -1339,7 +1375,39 @@ function zoomToTrack() {
   map.setView(bounds.getCenter(), zoom);
 }
 
+// ---- offline map: pick a map instead of following you; positions use the game's own calibration ----
+function showOfflineMap(mapId) {
+  const info = maps[mapId];
+  state = { status: "offline", scene: { id: Number(mapId), mapId: String(mapId) }, pos: null,
+            calibration: { source: "config", points: [], x: info.calibration.x, z: info.calibration.z } };
+  showScene(state.scene);
+  setFollow(false);
+  renderLocation(-1, -1);   // the map's name until the cursor is over an area
+  $("map-pick").value = mapId;
+  localStorageSet("offlineMap", mapId);
+}
+
+async function startOffline() {
+  document.body.classList.add("offline");
+  setStatus("Offline map", true);
+  const offered = await getJson("offline/maps.json");
+  const picker = document.createElement("select");
+  picker.id = "map-pick";
+  picker.title = "Show another map";
+  picker.innerHTML = offered.map((m) => `<option value="${m.id}">${m.name}</option>`).join("");
+  picker.onchange = () => showOfflineMap(picker.value);
+  document.querySelector("#location .place").prepend(picker);
+  // ?map=3003 opens that map (a link to share), else the one you last looked at
+  const wanted = [new URLSearchParams(location.search).get("map"), localStorageGet("offlineMap")];
+  picker.value = wanted.find((id) => offered.some((m) => m.id === id)) || offered[0].id;
+  showOfflineMap(picker.value);
+}
+
 // ---- start ----
 fetch("maps.json", { cache: "no-store" })
   .then((r) => r.json())
-  .then((m) => { maps = m; poll(); loadHandbook(); });
+  .then((m) => {
+    maps = m;
+    if (OFFLINE) startOffline();
+    else { poll(); loadHandbook(); }
+  });

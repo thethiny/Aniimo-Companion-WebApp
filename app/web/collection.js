@@ -23,13 +23,18 @@ const Collection = (() => {
   const el = (id) => document.getElementById(id);
 
   // ---- what you have: one place decides every state the page shows ----
-  const mask = (form) => handbook.states[form] || 0;
+  // Offline (no player): every form caught, with every variant it can come as
+  const maxedMask = (form) => BIT_KNOWN | BIT_CAUGHT | VARIANT_BITS.alpha[0] | VARIANT_BITS.alpha[1]
+    | ((info(form).can || []).includes("sparkling") ? VARIANT_BITS.sparkling[0] | VARIANT_BITS.sparkling[1] : 0)
+    | (info(form).prismana ? VARIANT_BITS.prismana[0] | VARIANT_BITS.prismana[1] : 0);
+  const mask = (form) => (OFFLINE ? maxedMask(form) : handbook.states[form] || 0);
   const formState = (form) => (mask(form) & BIT_CAUGHT ? "caught" : mask(form) & BIT_KNOWN ? "seen" : "unseen");
   const bestState = (states) => states.reduce((a, b) => (RANK[b] > RANK[a] ? b : a), "unseen");
   const info = (form) => book.forms[form] || {};
 
   // A variant's state for one form: "caught", "seen" or null; Umbral is only known from what you own now
   function variantState(form, tag) {
+    if (tag === "umbral" && OFFLINE) return (info(form).can || []).includes("umbral") ? "caught" : null;
     if (tag === "umbral") return (ownedByForm.get(+form) || []).some((p) => p.tags.includes("umbral")) ? "caught" : null;
     const [seen, caught] = VARIANT_BITS[tag];
     return mask(form) & caught ? "caught" : mask(form) & seen ? "seen" : null;
@@ -112,7 +117,7 @@ const Collection = (() => {
     el("col-counters").innerHTML = counter("owned", total.owned, c.owned[mode], c.owned.icon)
       + counter("sparkling", total.sparkling, c.sparkling[mode], c.sparkling.icon)
       + counter("prismana", total.prismana, c.prismana[mode], c.prismana.icon)
-      + counter("umbral", total.umbral, `${umbral.name} in storage`, umbral.icon)
+      + counter("umbral", total.umbral, OFFLINE ? umbral.name : `${umbral.name} in storage`, umbral.icon)
       + `<span class="col-progress" title="${c.collection[mode]}"><span>${c.collection[mode]}</span>`
       + `<b>${total.owned}<small>/${total.max}</small></b><i><em style="width:${percent}%"></em></i></span>`;
     el("collection-summary").textContent = `${total.owned}/${total.max}`;
@@ -144,6 +149,7 @@ const Collection = (() => {
   }
 
   function storedChip(s) {
+    if (OFFLINE) return "";   // no storage without a player
     if (s.owned.length) return `<span class="col-stored" title="In your storage now">×${s.owned.length}</span>`;
     return s.state === "caught" ? '<span class="col-stored none" title="Caught before, none in your storage now">×0</span>' : "";
   }
@@ -222,9 +228,9 @@ const Collection = (() => {
       + `<button class="col-close" id="cd-close" title="Close"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></button></div>`
       + `<h4>Forms <span>${s.caught}/${entry.forms.length} caught</span></h4><ul class="cd-forms">${forms}</ul>`
       + (finds.length ? `<h4>${pet.form || "How to find"}</h4><div class="cd-find">${finds.join("")}</div>` : "")
-      + `<h4>In storage <span>${owned.length}</span></h4>`
-      + (owned.length ? `<ul class="cd-owned">${owned.map(ownedRow).join("")}</ul>`
-                      : `<p class="cd-none">${s.state === "caught" ? "Caught before, none in your storage now." : "None yet."}</p>`)
+      + (OFFLINE ? "" : `<h4>In storage <span>${owned.length}</span></h4>`
+        + (owned.length ? `<ul class="cd-owned">${owned.map(ownedRow).join("")}</ul>`
+                        : `<p class="cd-none">${s.state === "caught" ? "Caught before, none in your storage now." : "None yet."}</p>`))
       + `<button class="cd-map" id="cd-map">Show ${[pet.name, entry.forms.length > 1 ? pet.form : ""].filter(Boolean).join(" · ") || "it"} on the map</button>`;
     el("cd-close").onclick = () => select(null);
     panel.querySelector(".cd-forms").onclick = (e) => {   // a form: its how-to-find text, and the map button tracks it
@@ -249,7 +255,8 @@ const Collection = (() => {
     tabs(el("col-modes"), [["family", book.modes.family], ["form", book.modes.form]], view.mode, (key) => setView({ mode: key }));
     tabs(el("col-elements"), [["", "Any element"], ...Object.entries(book.elements).map(([k, e]) =>
       [k, `<img src="icons/${e.icon}" alt="">${e.name}`])], view.element, (key) => setView({ element: key }));
-    tabs(el("col-status"), STATUS_FILTERS, view.status, (key) => setView({ status: key }));
+    const statuses = OFFLINE ? STATUS_FILTERS.filter(([key]) => key !== "stored") : STATUS_FILTERS;   // no storage offline
+    tabs(el("col-status"), statuses, view.status, (key) => setView({ status: key }));
   }
 
   function setView(changes) {
@@ -312,8 +319,9 @@ const Collection = (() => {
       el("col-grid").innerHTML = '<p class="col-empty">No collection data yet: run tools/build_mapdata.py.</p>';
       return;
     }
-    await loadOwned();
     draw(true);
+    if (OFFLINE) return;   // nothing live to read
+    await loadOwned();
     clearInterval(ownedTimer);
     ownedTimer = setInterval(loadOwned, OWNED_POLL_MS);   // also picks up handbook changes (app.js polls it)
   }

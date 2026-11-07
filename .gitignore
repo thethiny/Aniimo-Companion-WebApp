@@ -19,3 +19,6 @@ app/web/icons/
 app/web/maps.json
 app/web/mapdata.json
 app/web/collection.json
+
+# Earlier local offline builds (the published one is docs/)
+dist/

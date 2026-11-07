@@ -153,6 +153,12 @@ button.profile-row:hover b { text-decoration: underline; text-underline-offset: 
 }
 .world svg { position: absolute; inset: 8px; width: 44px; height: 44px; fill: none; stroke: rgba(255, 255, 255, .55); stroke-width: 1.5; }
 .world span { position: relative; margin-bottom: -10px; font-weight: 700; font-size: 14px; text-shadow: var(--shadow); }
+/* offline map (tools/build_offline.py): a map picker above the region; nothing follows you or needs calibrating */
+#map-pick {
+  margin-bottom: 4px; max-width: 220px; padding: 3px 8px; pointer-events: auto; cursor: pointer;
+  border-radius: 999px; border: 1px solid rgba(255, 255, 255, .35); background: rgba(10, 20, 34, .92); color: #fff; font: 700 13px system-ui, sans-serif;
+}
+body.offline #calibrate, body.offline #center { display: none; }
 .place { min-width: 0; }
 .region-row { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
 .region { font-size: 30px; font-weight: 700; line-height: 1.05; text-shadow: var(--shadow); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

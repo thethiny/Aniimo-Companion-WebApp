@@ -93,6 +93,7 @@ const Party = (() => {
   requestAnimationFrame(draw);
 
   async function poll() {
+    if (OFFLINE) return;   // the offline map has no players
     try {
       party = Object.assign({ members: [] }, await getJson("api/party"));
       renderCards();

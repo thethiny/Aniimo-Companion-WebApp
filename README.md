@@ -62,3 +62,16 @@ Python 3.9+ with `pip install UnityPy pillow numpy msgpack`. The game must be ru
 
 Most maps calibrate themselves from the game's data or minimap. If one doesn't, use **Calibrate** and click
 where your in-game arrow is at two far-apart places.
+
+## Offline map
+
+`python tools/build_offline.py` builds a static copy of the map into `docs/` that needs neither the game nor
+the server. It holds no player data: no position, quests or party; the profile shows the game's maximums
+(top rank and level, Primegy, the Skill Points and Lumin Amber everything takes) and the Aniilog shows
+everything collected; every Aniimo shows as caught and every Alpha / Omega as not fought. A picker switches
+between maps (`?map=<id>` opens one directly) and the location panel follows the cursor. It needs the built
+game data (Setup step 1) and ships the area names the server collected while you played.
+
+GitHub Pages publishes it from this branch: **Settings → Pages → Deploy from a branch → master, /docs**. The
+build is Pages-ready (relative paths, a `.nojekyll` file, and it fails if a file name's letter case doesn't
+match the page, since Pages is case-sensitive). After a rebuild, commit `docs/` on its own. `docs/CNAME` holds the custom domain (aniimo.thethiny.com); rebuilds keep it.

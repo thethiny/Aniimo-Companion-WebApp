@@ -263,7 +263,8 @@ def build_profile(pm, text):
     return {"headIcons": heads, "headFrames": frames, "levelExp": level_exp,
             "primegy": {"name": text_of(text, item.get("itemName")), "desc": text_of(text, item.get("itemDes")),
                         "icon": icon_name(item.get("icon")), "seconds": recovery.get("cycleValue"),
-                        "gain": recovery.get("changeValue")},
+                        "gain": recovery.get("changeValue"),
+                        "limit": (recovery.get("autoChangeRange") or {}).get(2)},   # where natural recovery stops
             "serverDayStart": servers.get("time", {}),
             "daily": build_daily_activity(pm, text), "eggs": build_eggs(pm, text),
             "branches": build_branches(pm, text), "quests": build_quests(pm, text),
