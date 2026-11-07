@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="collection.css">
+<link rel="stylesheet" href="party.css">
 </head>
 <body>
 <div id="map"></div>
@@ -16,7 +17,7 @@
 <!-- Player profile: picture in its frame, name, level, Primegy and the server's resets -->
 <section id="profile" class="hidden">
   <div class="profile-head">
-    <span class="profile-picture"><img id="profile-icon" alt=""><img id="profile-frame" alt=""></span>
+    <span class="profile-picture"><img id="profile-icon" alt=""><img id="profile-frame" alt=""><span id="profile-party"></span></span>
     <span class="profile-name">
       <b id="profile-name"></b>
       <span class="profile-rank" id="profile-rank"><img id="rank-icon" alt=""><span id="rank-name"></span></span>
@@ -75,6 +76,9 @@
 <!-- The quests the HUD tracks, one row per tab (Lore / Quests / Journey); a row opens to its steps -->
 <section id="quests-card" class="hidden"></section>
 </div>
+
+<!-- Party members beside your profile: picture, rank, level, <N>P badge, leader flag, where they are -->
+<div id="party" class="hidden"></div>
 
 <!-- Bottom centre: connection status, cursor position, route, and the view buttons -->
 <section id="statusbar">
@@ -202,5 +206,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="app.js"></script>
 <script src="collection.js"></script>
+<script src="party.js"></script>
 </body>
 </html>

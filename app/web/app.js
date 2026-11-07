@@ -199,51 +199,73 @@ function render() {
   if (marksWaitingForPosition && !markData.fit) drawMarks();   // marks placed by the calibration
   const [px, py] = worldToPixel(x, z);
   renderLocation(px, py);
-  // Facing: map the world forward vector through the calibration to screen space
-  const h = (state.heading * Math.PI) / 180;
-  const dx = state.calibration.x[0] * Math.sin(h);
-  const dy = state.calibration.z[0] * Math.cos(h);
-  const deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
-  glideTo(px, py, deg);
+  playerGlide.to(current.id, px, py, screenAngle(state.heading));
   if (!map.hasLayer(player)) player.setLatLng(toLatLng(px, py)).addTo(map);
   renderRoute();
 }
 
-// ---- arrow glide: each reading starts a slide from where the arrow is drawn now to the new spot,
-// lasting about one reading interval, so it moves every frame instead of jumping 5 times a second ----
+// Facing in degrees on screen: the world forward vector (heading in degrees, as the game reports it) through
+// the calibration
+function screenAngle(heading) {
+  const h = (heading * Math.PI) / 180;
+  const dx = state.calibration.x[0] * Math.sin(h);
+  const dy = state.calibration.z[0] * Math.cos(h);
+  return (Math.atan2(dx, -dy) * 180) / Math.PI;
+}
+
+// ---- arrow glide: each reading starts a slide from where the arrow is drawn now to the new spot, lasting
+// about one reading interval, so arrows move every frame instead of jumping at each reading ----
 const SNAP_PIXELS = 150;     // a jump this far in one reading (teleport, new map) moves straight there
-let glide = null;            // { mapId, from: [px, py, angle], to: [px, py, angle], start, ms }
-let lastReading = 0;
 let mapPaused = false;       // the collection covers the map: no arrow or map moves until it closes
 
 // The arrow's angle keeps counting past 360 so a turn always takes the short way round
 // (359 to 1 turns 2 degrees on, not 358 back)
 const shortTurn = (from, deg) => from + ((((deg - from) % 360) + 540) % 360) - 180;
 
-function glideAt(now) {
-  const t = Math.min(1, (now - glide.start) / glide.ms);
-  return glide.from.map((v, i) => v + (glide.to[i] - v) * t);
+class Glider {
+  constructor(maxMs) {
+    this.maxMs = maxMs;      // longest slide: about the slowest reading interval
+    this.slide = null;       // { mapId, from: [px, py, angle], to: [px, py, angle], start, ms }
+    this.last = 0;
+  }
+
+  // [px, py, angle] drawn at `now` on map `mapId`, or null (nothing read on that map yet)
+  at(now, mapId) {
+    const g = this.slide;
+    if (!g || g.mapId !== mapId) return null;
+    const t = Math.min(1, (now - g.start) / g.ms);
+    return g.from.map((v, i) => v + (g.to[i] - v) * t);
+  }
+
+  to(mapId, px, py, deg) {
+    const now = performance.now();
+    const ms = Math.min(this.maxMs, Math.max(100, now - this.last));   // the time readings actually take
+    this.last = now;
+    const drawn = this.at(now, mapId);
+    const far = !drawn || Math.hypot(px - drawn[0], py - drawn[1]) > SNAP_PIXELS;
+    const angle = drawn ? shortTurn(drawn[2], deg) : deg;
+    this.slide = { mapId, from: far ? [px, py, angle] : drawn, to: [px, py, angle], start: now, ms };
+  }
 }
 
-function glideTo(px, py, deg) {
-  const now = performance.now();
-  const ms = Math.min(500, Math.max(100, now - lastReading));   // the time readings actually take
-  lastReading = now;
-  const drawn = glide && glide.mapId === current.id ? glideAt(now) : null;
-  const far = !drawn || Math.hypot(px - drawn[0], py - drawn[1]) > SNAP_PIXELS;
-  const angle = drawn ? shortTurn(drawn[2], deg) : deg;
-  glide = { mapId: current.id, from: far ? [px, py, angle] : drawn, to: [px, py, angle], start: now, ms };
+// Moves a marker to its glider's spot and turns its arrow (the marker's svg.arrow, else its svg)
+function drawGlide(marker, glider, now) {
+  const at = current && glider.at(now, current.id);
+  if (!at || !map.hasLayer(marker)) return null;
+  const ll = toLatLng(at[0], at[1]);
+  marker.setLatLng(ll);
+  const element = marker.getElement();
+  const svg = element && (element.querySelector("svg.arrow") || element.querySelector("svg"));
+  if (svg) svg.style.transform = `rotate(${at[2]}deg)`;
+  return ll;
 }
 
+const playerGlide = new Glider(500);   // your position comes 5 times a second
 function drawArrow(now) {
   requestAnimationFrame(drawArrow);
-  if (mapPaused || !glide || !current || glide.mapId !== current.id || !map.hasLayer(player)) return;
-  const [px, py, angle] = glideAt(now);
-  const ll = toLatLng(px, py);
-  player.setLatLng(ll);
-  const svg = player.getElement() && player.getElement().querySelector("svg");
-  if (svg) svg.style.transform = `rotate(${angle}deg)`;
-  if (follow && !picking && !map._animatingZoom) map.panTo(ll, { animate: false, noMoveStart: true });
+  if (mapPaused) return;
+  const ll = drawGlide(player, playerGlide, now);
+  if (ll && follow && !picking && !map._animatingZoom) map.panTo(ll, { animate: false, noMoveStart: true });
 }
 requestAnimationFrame(drawArrow);
 

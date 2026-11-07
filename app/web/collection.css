@@ -2,7 +2,7 @@
 body.collection-open #map { visibility: hidden; }   /* stays laid out (Leaflet keeps its size), nothing to paint */
 body.collection-open #left-stack, body.collection-open #filters, body.collection-open #location,
 body.collection-open #statusbar, body.collection-open #zoombar, body.collection-open #area,
-body.collection-open #track { display: none; }   /* map panels wider than a phone would widen the page */
+body.collection-open #track, body.collection-open #party { display: none; }   /* map panels wider than a phone would widen the page */
 
 #collection {
   --tile: 150px;

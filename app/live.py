@@ -9,13 +9,14 @@ DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
 
 class LiveStore:
-    def __init__(self, name, required, keep=()):
+    def __init__(self, name, required, keep=(), persist=True):
         """`required`: result key that must be non-empty for a read to count (empty means not loaded yet).
-        `keep`: keys whose None means "not known right now": the last known value stays."""
-        self.path = os.path.join(DATA, f"{name}.json")
+        `keep`: keys whose None means "not known right now": the last known value stays.
+        `persist`: keep it in data/<name>.json (off for data that only means something while you play)."""
+        self.path = os.path.join(DATA, f"{name}.json") if persist else None
         self.required, self.keep = required, keep
         self.lock = threading.Lock()
-        self.data = json.load(open(self.path, encoding="utf-8")) if os.path.exists(self.path) else {}
+        self.data = json.load(open(self.path, encoding="utf-8")) if self.path and os.path.exists(self.path) else {}
 
     def merge(self, scene, found):
         if not found.get(self.required):
@@ -25,7 +26,7 @@ class LiveStore:
             as_json = lambda d: json.loads(json.dumps(d))   # same key types whether read from file or memory
             changed = as_json({k: v for k, v in self.data.items() if k != "updated"}) != as_json(found)
             self.data = dict(found, updated=int(time.time()))
-            if changed:   # reads come every few seconds; only rewrite the file when something changed
+            if changed and self.path:   # reads come every few seconds; only rewrite the file when something changed
                 os.makedirs(DATA, exist_ok=True)
                 json.dump(self.data, open(self.path, "w", encoding="utf-8"))
 
