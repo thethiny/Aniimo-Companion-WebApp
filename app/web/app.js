@@ -722,7 +722,9 @@ async function getJson(url) {
 
 async function loadHandbook() {
   try {
-    const [book, sky, me] = await Promise.all([getJson("api/handbook"), getJson("api/weather"), getJson("api/profile")]);
+    const [book, sky, me, quests] = await Promise.all([getJson("api/handbook"), getJson("api/weather"),
+      getJson("api/profile"), getJson("api/quests")]);
+    trackedQuests = quests;
     handbook = Object.assign({ states: {}, blockCaught: {}, tracked: null }, book);
     account = me;
     weather = sky.weather || {};
@@ -735,6 +737,7 @@ async function loadHandbook() {
   renderTracking();
   renderTimeOfDay();
   renderProfile();
+  renderQuests();
 }
 setInterval(loadHandbook, HANDBOOK_POLL_MS);
 
@@ -914,6 +917,61 @@ function renderBranches() {
   }).join(""));
 }
 
+// ---- tracked quests: one row per HUD tab with the quest's name; a row opens to its current steps ----
+let trackedQuests = {};                       // /api/quests: {tracked: {lore, quests, journey}, active}
+const QUEST_TABS = [["lore", "Lore"], ["quests", "Quests"], ["journey", "Journey"]];
+const openQuests = new Set();
+
+// Steps of this quest in progress, deepest first (steps can hold steps), with something to show
+function questSteps(quest, info, active) {
+  const steps = info.steps || {};
+  const below = (id) => {
+    for (let step = steps[id]; step; step = steps[step.parent]) if (step.parent === quest) return true;
+    return false;
+  };
+  return Object.keys(active || {}).filter((id) => +id !== quest && below(id) && steps[id].visible)
+    .map((id) => ({ id, ...steps[id] })).filter((s) => s.objectives.length || s.desc);
+}
+
+function questBody(quest, info, active) {
+  const name = (info.names || {})[quest] || {};
+  const lines = questSteps(quest, info, active).map((step) => {
+    const counts = active[step.id] || {};
+    const items = step.objectives.map(([id, text, target]) => {
+      const done = target != null && (counts[id] || 0) >= target;
+      return `<li class="${done ? "done" : ""}">${richText(text)}</li>`;
+    }).join("");
+    return (step.desc ? `<div class="quest-step">${richText(step.desc)}</div>` : "")
+      + (items ? `<ul class="quest-objectives">${items}</ul>` : "");
+  }).join("");
+  return (name.chapter ? `<div class="quest-chapter">${richText(name.chapter)}</div>` : "") + lines
+    + (name.desc ? `<div class="quest-desc">${richText(name.desc)}</div>` : "");
+}
+
+function renderQuests() {
+  const tracked = trackedQuests.tracked;
+  const info = (markData.profile || {}).quests || {};
+  $("quests-card").classList.toggle("hidden", !tracked);
+  if (!tracked) return;
+  setHtml($("quests-card"), QUEST_TABS.map(([tab, label]) => {
+    const quest = tracked[tab];
+    if (!quest) return `<div class="quest none ${tab}"><div class="quest-head"><b>${label}: not tracking</b></div></div>`;
+    const name = (info.names || {})[quest] || {};
+    return `<div class="quest ${tab} ${openQuests.has(tab) ? "open" : ""}" data-tab="${tab}">`
+      + `<button class="quest-head" title="${label}">${name.icon ? `<img src="icons/${name.icon}" alt="">` : ""}`
+      + `<b>${richText(name.name || `${label} quest`)}</b><i>${label}</i></button>`
+      + `<div class="quest-body">${questBody(quest, info, trackedQuests.active)}</div></div>`;
+  }).join(""));
+}
+
+$("quests-card").onclick = (e) => {
+  const row = e.target.closest(".quest-head") && e.target.closest(".quest[data-tab]");
+  if (!row) return;
+  const tab = row.dataset.tab;
+  if (!openQuests.delete(tab)) openQuests.add(tab);
+  row.classList.toggle("open", openQuests.has(tab));
+};
+
 // ---- eggs hatching: three slots like the game, the middle one for Perfect eggs only, the sides any egg ----
 const MIDDLE_SLOT = 1;
 
@@ -1054,7 +1112,9 @@ function richText(text) {
     .replace(/&lt;color=(#[0-9a-fA-F]{6,8})&gt;/g, '<span style="color:$1">')
     .replace(/&lt;\/color&gt;/g, "</span>")
     .replace(/&lt;style=[^&]*&gt;/g, "<b>")
-    .replace(/&lt;\/style&gt;/g, "</b>");
+    .replace(/&lt;\/style&gt;/g, "</b>")
+    .replace(/&lt;u( [^&]*)?&gt;/g, "<u>")
+    .replace(/&lt;\/u&gt;/g, "</u>");
 }
 
 function renderPetDetail(proto) {

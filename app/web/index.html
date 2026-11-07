@@ -10,7 +10,9 @@
 <body>
 <div id="map"></div>
 
-<!-- Top-left player profile: picture in its frame, name, level, Primegy and the server's resets -->
+<!-- Top-left column: the profile (or its Daily Activity checklist) and the tracked quests under it -->
+<div id="left-stack">
+<!-- Player profile: picture in its frame, name, level, Primegy and the server's resets -->
 <section id="profile" class="hidden">
   <div class="profile-head">
     <span class="profile-picture"><img id="profile-icon" alt=""><img id="profile-frame" alt=""></span>
@@ -57,6 +59,10 @@
   <div class="daily-bar" id="daily-bar"></div>
   <div id="daily-tasks"></div>
 </section>
+
+<!-- The quests the HUD tracks, one row per tab (Lore / Quests / Journey); a row opens to its steps -->
+<section id="quests-card" class="hidden"></section>
+</div>
 
 <!-- Bottom centre: connection status, cursor position, route, and the view buttons -->
 <section id="statusbar">

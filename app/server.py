@@ -11,7 +11,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from aniimo import areas, handbook, marks, profile, weather  # noqa: E402
+from aniimo import areas, handbook, marks, profile, quests, weather  # noqa: E402
 from aniimo.game import GameReader  # noqa: E402
 from areas import AreaStore  # noqa: E402
 from calibration import Calibration  # noqa: E402
@@ -31,11 +31,12 @@ PROFILE_SECONDS = 5     # name, level, picture, Primegy, server resets
 area_store = AreaStore()
 mark_store = MarkStore()
 live = {"handbook": LiveStore("handbook", "states"), "weather": LiveStore("weather", "weather"),
-        "profile": LiveStore("profile", "name", keep=("eggs", "daily"))}   # known once their screen was opened
+        "profile": LiveStore("profile", "name", keep=("eggs", "daily")), "quests": LiveStore("quests", "tracked")}   # known once their screen was opened
 reader = GameReader(collectors=[
     ("handbook", HANDBOOK_SECONDS, handbook.collect, live["handbook"].merge, LIVE_LANE),
     ("weather", WEATHER_SECONDS, weather.collect, live["weather"].merge, LIVE_LANE),
     ("profile", PROFILE_SECONDS, profile.collect, live["profile"].merge, LIVE_LANE),
+    ("quests", PROFILE_SECONDS, quests.collect, live["quests"].merge, LIVE_LANE),
     ("old copies", COPIES_SECONDS, handbook.find_copies, lambda scene, found: None, COPIES_LANE),
     ("area names", COLLECT_SECONDS, areas.collect, area_store.merge),
     ("marks", COLLECT_SECONDS, marks.collect, lambda scene, found: mark_store.merge(found)),
@@ -85,7 +86,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/areas":
             scene = (reader.snapshot().get("scene") or {}).get("mapId")
             return self._json(area_store.get(scene) if scene else {})
-        if path.startswith("/api/") and path[5:] in live:   # /api/handbook, /api/weather, /api/profile
+        if path.startswith("/api/") and path[5:] in live:   # /api/handbook, /api/weather, /api/profile, /api/quests
             return self._json(live[path[5:]].get())
         if path == "/api/marks":
             scene = (reader.snapshot().get("scene") or {}).get("mapId")

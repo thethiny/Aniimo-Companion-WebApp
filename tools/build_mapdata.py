@@ -170,6 +170,51 @@ def build_branches(pm, text):
     return branches
 
 
+def text_ref(text, value):
+    """Quest texts are text hashes stored as digit strings."""
+    return text_of(text, value) if value not in (None, "", "0") else None
+
+
+def build_quests(pm, text):
+    """What the tracked quests card needs: {"names": {quest: {name, chapter, desc}}} for quests the HUD can
+    track (story sections and Elite Training) with their HUD icon, {"steps": {quest: {parent, visible, desc, objectives:
+    [[objective id, text, target]]}}} for every quest step that has text or a parent quest."""
+    base = pm.table("Quest.quest_base", depth=4)
+    chapters = pm.table("quest_chapter")
+    names = {}
+    sections = pm.table("quest_main_section_chapter_id")
+    for chapter, rows in pm.table("quest_main", depth=2).items():
+        for section, row in rows.items():
+            quest = (sections.get(section) or {}).get("questGroupId")
+            if quest:
+                names[quest] = {"name": text_of(text, row.get("sectionName")),
+                                "chapter": text_of(text, (chapters.get(chapter) or {}).get("chapterName")),
+                                "desc": text_of(text, row.get("startDesc"))}
+    entries = pm.table("special_train_entry_data", depth=2)
+    for step, row in pm.table("quest_special_train_revert").items():
+        parent = (base.get(step) or {}).get("parentQuest")
+        if parent and parent not in names:
+            entry = (entries.get(row.get("taskId")) or {}).get(row.get("stageId")) or {}
+            names[parent] = {"name": text_of(text, row.get("taskName")), "chapter": "Elite Training",
+                             "desc": text_of(text, entry.get("desc"))}
+    steps = {}
+    for quest, row in base.items():
+        objectives = []
+        for objective, info in sorted((row.get("objectives") or {}).items()):
+            label = text_ref(text, info.get("desc"))
+            target = (info.get("paramVals") or {}).get(5)
+            if label:
+                objectives.append([objective, label, target if isinstance(target, (int, float)) else None])
+        desc = text_ref(text, row.get("desc"))
+        if objectives or desc or row.get("parentQuest"):   # steps without text still link deeper ones up
+            steps[quest] = {"parent": row.get("parentQuest"), "visible": row.get("visible", False), "desc": desc,
+                            "objectives": objectives}
+    icons = pm.table("quest_task_type")
+    for quest, info in names.items():
+        info["icon"] = icon_name((icons.get(quest) or {}).get("mapMarkPoint"))   # the HUD's quest icon
+    return {"names": names, "steps": steps}
+
+
 def build_profile(pm, text):
     """What the player profile needs besides your live data: picture and frame files by id, the XP to reach
     each level (from the one before), Primegy's name, icon and recovery, and per server region a moment its day
@@ -186,7 +231,7 @@ def build_profile(pm, text):
                         "gain": recovery.get("changeValue")},
             "serverDayStart": servers.get("time", {}),
             "daily": build_daily_activity(pm, text), "eggs": build_eggs(pm, text),
-            "branches": build_branches(pm, text)}
+            "branches": build_branches(pm, text), "quests": build_quests(pm, text)}
 
 
 def main():

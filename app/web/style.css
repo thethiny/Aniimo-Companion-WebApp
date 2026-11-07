@@ -36,9 +36,13 @@ button {
 button:hover { background: rgba(255, 255, 255, 0.16); }
 button.on { background: var(--accent); color: #1b1300; border-color: var(--accent); }
 
-/* ---- top-left player profile ---- */
+/* ---- top-left column: player profile (or its Daily Activity card), tracked quests under it ---- */
+#left-stack {
+  position: fixed; z-index: 1002; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: flex-start;
+  gap: 10px; max-height: calc(100vh - 32px); overflow: auto; scrollbar-width: none;
+}
 #profile {
-  position: fixed; z-index: 1000; left: 16px; top: 16px; width: 280px; padding: 10px 14px 10px 10px;
+  flex: none; width: 280px; padding: 10px 14px 10px 10px;
   border-radius: 18px; background: rgba(38, 44, 62, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .45); color: #fff;
 }
 #profile.hidden { display: none; }
@@ -89,7 +93,7 @@ button.profile-row:hover b { text-decoration: underline; text-underline-offset: 
 
 /* ---- Daily Activity card (under the profile): the game's full screen, folded into a card ---- */
 #daily-card {
-  position: fixed; z-index: 1002; left: 16px; top: 16px; width: 340px; max-height: calc(100vh - 32px); overflow: auto;
+  flex: none; width: 340px;
   padding: 14px; border-radius: 18px; background: #eef0f6; color: #2f3646; box-shadow: 0 2px 10px rgba(0, 0, 0, .45);
 }
 #daily-card.hidden { display: none; }
@@ -411,9 +415,42 @@ button.icon.done svg { stroke: var(--ok); }
 #track-close svg { width: 26px; height: 26px; fill: none; stroke: #fff; stroke-width: 3.6; stroke-linecap: round; }
 .spawn-cell { stroke: #ffd34d; stroke-width: 2; fill: #ffd34d; fill-opacity: .18; }
 
+/* ---- tracked quests card (under the profile) ---- */
+#quests-card {
+  flex: none; width: 280px; padding: 4px 12px; border-radius: 18px; color: #fff;
+  background: rgba(38, 44, 62, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+}
+#quests-card.hidden { display: none; }
+.quest + .quest { border-top: 1px solid rgba(255, 255, 255, .14); }
+.quest-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 0; border: 0; border-radius: 0;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.quest-head img { flex: none; width: 24px; height: 24px; object-fit: contain; }
+.quest-head b { flex: 1; min-width: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quest-head i { font-style: normal; font-size: 11px; color: #9aa3b4; }
+.quest-head::after { content: "\203A"; font-size: 18px; color: #9aa3b4; transition: transform .15s; }
+.quest.open .quest-head::after { transform: rotate(90deg); }
+.quest.none .quest-head { cursor: default; }
+.quest.none .quest-head::after { content: ""; }
+.quest.none b { font-weight: 400; color: #7d8494; }
+.quest.lore b { color: #ffd34d; }
+.quest.quests b { color: #c9a8ff; }
+.quest.journey b { color: #bde05a; }
+.quest-body { display: none; padding: 0 0 10px 32px; font-size: 12px; color: #c9d1dd; }
+.quest.open .quest-body { display: block; }
+.quest-chapter { color: #9aa3b4; }
+.quest-objectives { margin: 6px 0 0; padding: 0; list-style: none; }
+.quest-objectives li { position: relative; padding-left: 16px; margin-top: 3px; color: #fff; font-size: 13px; }
+.quest-objectives li::before { content: ""; position: absolute; left: 0; top: 5px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid #c9d1dd; }
+.quest-objectives li.done { color: #9aa3b4; text-decoration: line-through; }
+.quest-objectives li.done::before { background: #6fdc8c; border-color: #6fdc8c; }
+.quest-step { margin-top: 6px; font-style: italic; }
+.quest-desc { margin-top: 6px; color: #9aa3b4; white-space: pre-line; }
+
 /* ---- zoom bar (left), like the game's ---- */
 #zoombar {
-  position: fixed; z-index: 1000; left: 22px; bottom: 130px;   /* under the profile card, above the location */
+  position: fixed; z-index: 1000; left: 312px; bottom: 130px;   /* beside the left column, above the location */
   display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
 .zoom-step {
@@ -447,7 +484,9 @@ button.icon.done svg { stroke: var(--ok); }
 
 @media (max-width: 520px) {
   .panel { left: 8px; right: 8px; top: 8px; width: auto; }
-  #profile { left: 8px; top: 8px; width: 230px; padding: 8px 10px 8px 8px; }
+  #left-stack { left: 8px; top: 8px; }
+  #profile, #quests-card { width: 230px; }
+  #profile { padding: 8px 10px 8px 8px; }
   .profile-picture, #profile-frame { width: 48px; height: 48px; }
   #profile-icon { inset: 7px; width: 34px; height: 34px; }
   #profile-name { font-size: 17px; }
