@@ -79,6 +79,6 @@ def collect(proc):
             "primegy": {"value": int(value) if value is not None else None, "max": int(limit) if limit else None,
                         "nextAt": _energy(proc, player, "commonEnergyTimes")},
             "daily": handbook.newest(proc, lambda fields: _daily_activity(proc, fields)),
-            "eggs": handbook.newest(proc, lambda fields: _eggs(proc, fields)) or [],
+            "eggs": handbook.newest(proc, lambda fields: _eggs(proc, fields)),   # None until known
             "branches": _branches(proc, player),
             "money": {item: int(count) for item, count in money.items() if isinstance(item, int) and isinstance(count, float)}}

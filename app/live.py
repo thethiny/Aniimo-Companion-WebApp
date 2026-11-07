@@ -9,10 +9,11 @@ DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
 
 class LiveStore:
-    def __init__(self, name, required):
-        """`required`: result key that must be non-empty for a read to count (empty means not loaded yet)."""
+    def __init__(self, name, required, keep=()):
+        """`required`: result key that must be non-empty for a read to count (empty means not loaded yet).
+        `keep`: keys whose None means "not known right now": the last known value stays."""
         self.path = os.path.join(DATA, f"{name}.json")
-        self.required = required
+        self.required, self.keep = required, keep
         self.lock = threading.Lock()
         self.data = json.load(open(self.path, encoding="utf-8")) if os.path.exists(self.path) else {}
 
@@ -20,6 +21,7 @@ class LiveStore:
         if not found.get(self.required):
             return   # not loaded in game yet (login, loading screen): keep the last good read
         with self.lock:
+            found = dict(found, **{k: self.data[k] for k in self.keep if found.get(k) is None and k in self.data})
             as_json = lambda d: json.loads(json.dumps(d))   # same key types whether read from file or memory
             changed = as_json({k: v for k, v in self.data.items() if k != "updated"}) != as_json(found)
             self.data = dict(found, updated=int(time.time()))

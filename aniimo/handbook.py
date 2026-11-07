@@ -10,7 +10,8 @@
 # falls back to the old copy with the most progress (level, then XP) that has them. Synced objects keep
 # their fields under "_properties" next to back references that lead all over the heap, so the reader
 # walks one level at a time instead of reading deep.
-# The map system and the old copies take a heap search to find (minutes); everything else is direct.
+# The map system and the old copies take a heap search to find (minutes); everything else is direct. The
+# old copies are searched by find_copies() on a lane of its own, so live reads never wait for it.
 from . import lua, pg
 
 KEY_HANDBOOK, KEY_BLOCKS, KEY_TRACKED = "petHandbookMap", "blockCatchedPetMap", "activeDistributionPetTemplateId"
@@ -51,7 +52,7 @@ def newest(proc, read):
     value = read(live_player(proc))
     if value is not None:
         return value
-    copies = [lua.read_table(proc, table, depth=0) or {} for table in _copies.get(proc)]
+    copies = [lua.read_table(proc, table, depth=0) or {} for table in _copies]
     for fields in sorted((f for f in copies if _is_player(f)), key=_progress, reverse=True):
         value = read(fields)
         if value is not None:
@@ -67,9 +68,16 @@ def _holder(proc, nodes, accept):
     return None
 
 
-def _locate_copies(proc):
+_copies = []   # old copies of your property table, as last found by find_copies()
+
+
+def find_copies(proc):
+    """Searches the heap for old copies of your property table for newest() (minutes; run it off the live
+    lane). Returns {"copies": [...]} for the log."""
+    global _copies
     strs = lua.find_strings(proc, [KEY_HANDBOOK])
-    return _player_copies(proc, lua.tables_with_key(proc, strs[KEY_HANDBOOK]))
+    _copies = _player_copies(proc, lua.tables_with_key(proc, strs[KEY_HANDBOOK]))
+    return {"copies": _copies}
 
 
 def _locate_map_system(proc):
@@ -77,7 +85,6 @@ def _locate_map_system(proc):
     return _holder(proc, lua.tables_with_key(proc, strs[KEY_TRACKED]), lambda f: MAP_SYSTEM_FIELD in f)
 
 
-_copies = lua.Located(_locate_copies, lambda proc, found: True, max_age=600)
 _map_system = lua.Located(_locate_map_system,
                           lambda proc, found: bool(found) and MAP_SYSTEM_FIELD in (lua.read_table(proc, found, depth=0) or {}))
 

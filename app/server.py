@@ -23,18 +23,20 @@ COLLECT_SECONDS = 600   # names and marks appear in memory when the big map is o
 # Live reads run in their own lane (thread) so the minutes-long scans never hold them up; after a first
 # search they take well under a second
 LIVE_LANE = "live"
-PROFILE_LANE = "profile"   # its fallback to old copies (eggs) can take minutes: keep it off the live lane
+COPIES_LANE = "copies"   # the search for old player copies (eggs fallback) takes minutes: its own lane
+COPIES_SECONDS = 600
 HANDBOOK_SECONDS = 5    # seen / caught, tracked Aniimo, star title
 WEATHER_SECONDS = 15    # weather and time of day
 PROFILE_SECONDS = 5     # name, level, picture, Primegy, server resets
 area_store = AreaStore()
 mark_store = MarkStore()
 live = {"handbook": LiveStore("handbook", "states"), "weather": LiveStore("weather", "weather"),
-        "profile": LiveStore("profile", "name")}
+        "profile": LiveStore("profile", "name", keep=("eggs", "daily"))}   # known once their screen was opened
 reader = GameReader(collectors=[
     ("handbook", HANDBOOK_SECONDS, handbook.collect, live["handbook"].merge, LIVE_LANE),
     ("weather", WEATHER_SECONDS, weather.collect, live["weather"].merge, LIVE_LANE),
-    ("profile", PROFILE_SECONDS, profile.collect, live["profile"].merge, PROFILE_LANE),
+    ("profile", PROFILE_SECONDS, profile.collect, live["profile"].merge, LIVE_LANE),
+    ("old copies", COPIES_SECONDS, handbook.find_copies, lambda scene, found: None, COPIES_LANE),
     ("area names", COLLECT_SECONDS, areas.collect, area_store.merge),
     ("marks", COLLECT_SECONDS, marks.collect, lambda scene, found: mark_store.merge(found)),
 ])
