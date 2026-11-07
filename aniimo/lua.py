@@ -4,7 +4,8 @@ import struct
 GCSTR_SIZE = 0x18          # GCstr header, characters follow
 GCSTR_LEN = 0x14
 NODE_SIZE = 0x18           # TValue val, TValue key, next
-TAB_ARRAY, TAB_NODE, TAB_ASIZE, TAB_HMASK = 0x10, 0x28, 0x30, 0x34
+TAB_GCT, TAB_ARRAY, TAB_NODE, TAB_ASIZE, TAB_HMASK = 0x09, 0x10, 0x28, 0x30, 0x34
+GCT_TABLE = 11             # GCHeader.gct of a table (~LJ_TTAB)
 PTR_MASK = (1 << 47) - 1
 
 # itype values (upper 17 bits of a GC64 TValue), see lj_obj.h
@@ -93,9 +94,13 @@ def owner_tables(proc, nodes, max_index=256):
     for start, refs in proc.scan_qwords(starts.keys()).items():
         node = starts[start]
         for ref in refs:
+            # Node "next" links point into node arrays too: require a real table header
             tab = ref - TAB_NODE
-            hmask = proc.i32(tab + TAB_HMASK)
-            if hmask is not None and 0 <= hmask < 1 << 16 and node < start + (hmask + 1) * NODE_SIZE:
+            head = proc.read(tab, 0x38)
+            if not head or len(head) < 0x38 or head[TAB_GCT] != GCT_TABLE:
+                continue
+            hmask = struct.unpack_from("<I", head, TAB_HMASK)[0]
+            if hmask < 1 << 16 and (hmask + 1) & hmask == 0 and node < start + (hmask + 1) * NODE_SIZE:
                 found.setdefault(node, tab)
     return found
 

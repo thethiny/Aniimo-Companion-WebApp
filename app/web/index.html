@@ -11,24 +11,45 @@
 <div id="map"></div>
 
 <section class="panel" id="info">
-  <div class="row"><span class="label">Map</span><span id="scene">-</span></div>
-  <div class="coords">
-    <div><span class="label">X</span><span id="x">-</span></div>
-    <div><span class="label">Z</span><span id="z">-</span></div>
-    <div><span class="label">Height</span><span id="y">-</span></div>
-  </div>
-  <div class="row muted" id="cursor"></div>
   <div class="row status" id="status">Connecting...</div>
   <div class="row muted" id="route"></div>
+  <div class="row muted" id="cursor"></div>
   <div class="buttons">
     <button id="fit" title="Fit the island you're on to the screen">Fit</button>
     <button id="calibrate" title="Click where you are on the map to add a reference point">Calibrate</button>
   </div>
 </section>
 
-<button id="center" class="map-button on" title="Follow me (keeps your zoom)">
-  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" fill="none"/></svg>
-</button>
+<!-- Bottom-left location panel, laid out like the game's map screen -->
+<section id="location">
+  <div class="world" title="Current world">
+    <svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="15"/><ellipse cx="20" cy="20" rx="19" ry="6"/></svg>
+    <span id="world">-</span>
+  </div>
+  <div class="place">
+    <div class="region" id="region">-</div>
+    <div class="subarea" id="subarea"></div>
+    <div class="coords">
+      <span id="coords">-</span>
+      <button id="copy" class="icon" title="Copy coordinates">
+        <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>
+      </button>
+      <span class="height" id="height"></span>
+    </div>
+  </div>
+</section>
+
+<!-- Mark filters, like the game's map categories -->
+<section class="panel" id="filters">
+  <div class="filters-head">
+    <span>Markers</span>
+    <button id="filters-toggle" class="icon" title="Show or hide the filter list">
+      <svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+    </button>
+  </div>
+  <div id="filter-list"></div>
+  <div class="muted" id="marks-info"></div>
+</section>
 
 <section class="panel hidden" id="calib">
   <p id="calib-text"></p>
@@ -38,6 +59,10 @@
     <button id="calib-done">Done</button>
   </div>
 </section>
+
+<button id="center" class="map-button on" title="Follow me (keeps your zoom)">
+  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" fill="none"/></svg>
+</button>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="app.js"></script>

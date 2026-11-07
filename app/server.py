@@ -11,11 +11,20 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from aniimo import areas, marks  # noqa: E402
 from aniimo.game import GameReader  # noqa: E402
+from areas import AreaStore  # noqa: E402
 from calibration import Calibration  # noqa: E402
+from marks import MarkStore  # noqa: E402
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
-reader = GameReader()
+COLLECT_SECONDS = 600   # names and marks appear in memory when the big map is opened; each pass scans for minutes
+area_store = AreaStore()
+mark_store = MarkStore()
+reader = GameReader(collectors=[
+    ("area names", COLLECT_SECONDS, areas.collect, area_store.merge),
+    ("marks", COLLECT_SECONDS, marks.collect, lambda scene, found: mark_store.merge(found)),
+])
 calibration = Calibration()
 
 
@@ -27,7 +36,7 @@ class Handler(SimpleHTTPRequestHandler):
         pass
 
     def end_headers(self):
-        if self.path.startswith("/api/") or self.path in ("/", "/index.html", "/app.js", "/style.css", "/maps.json"):
+        if self.path.startswith(("/api/", "/areas/")) or self.path in ("/", "/index.html", "/app.js", "/style.css", "/maps.json"):
             self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
@@ -54,6 +63,12 @@ class Handler(SimpleHTTPRequestHandler):
                     calibration.observe(scene["mapId"], [pos["x"], pos["z"]], state["mapPos"])
                 state["calibration"] = calibration.get(scene["mapId"])
             return self._json(state)
+        if path == "/api/areas":
+            scene = (reader.snapshot().get("scene") or {}).get("mapId")
+            return self._json(area_store.get(scene) if scene else {})
+        if path == "/api/marks":
+            scene = (reader.snapshot().get("scene") or {}).get("mapId")
+            return self._json(mark_store.get(scene) if scene else {"marks": [], "categories": []})
         return super().do_GET()
 
     def do_POST(self):

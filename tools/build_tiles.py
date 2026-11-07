@@ -24,6 +24,10 @@ REGION_PAD = 0.04        # padding around a landmass, as a fraction of its size
 SOURCES = [("MapMini", r"xgui_mini_(\d+)_"), ("Map", r"xgui_texture_(\d+)_")]
 NAMES = {"3000": "Idyll", "501": "Astra"}
 TILE_NAME = re.compile(r"UI_Img_(MapMini|Map)_(\d+)_(\d+)_(\d+)$")
+# Area masks: red = round(small-area index * 4.25), green = 255 inside an area (low on borders)
+AREA_BUNDLE, AREA_NAME = r"xgui_tex2k_map_", re.compile(r"UI_Img_MapArea_(\d+)_(\d+)_(\d+)$")
+AREA_STEP = 255 / 60
+AREA_SCALE = 16          # one area-grid cell per 16 map pixels
 
 
 def load_tiles():
@@ -41,6 +45,37 @@ def load_tiles():
                 kind, scene, col, row = m[1], m[2], int(m[3]), int(m[4])
                 found[scene][kind][(col, row)] = tex.image.convert("RGB")
     return found
+
+
+def load_area_masks():
+    """{scene: {(col, row): Image}} from the area mask tiles."""
+    found = defaultdict(dict)
+    for name in sorted(os.listdir(BUNDLES)):
+        if not re.search(AREA_BUNDLE, name):
+            continue
+        for obj in UnityPy.load(os.path.join(BUNDLES, name)).objects:
+            if obj.type.name == "Texture2D":
+                tex = obj.read()
+                m = AREA_NAME.match(tex.m_Name)
+                if m:
+                    found[m[1]][(int(m[2]), int(m[3]))] = tex.image.convert("RGB")
+    return found
+
+
+def write_area_grid(scene, tiles, width, height):
+    """Grayscale PNG of small-area indices (0 = none), one cell per AREA_SCALE map pixels."""
+    tile_px = next(iter(tiles.values())).size[0]
+    cols, rows = max(c for c, _ in tiles) + 1, max(r for _, r in tiles) + 1
+    mask = Image.new("RGB", (cols * tile_px, rows * tile_px))
+    for (c, r), img in tiles.items():
+        mask.paste(img, (c * tile_px, r * tile_px))
+    grid_w, grid_h = math.ceil(width / AREA_SCALE), math.ceil(height / AREA_SCALE)
+    # Nearest sampling keeps index values exact (no blending across borders)
+    px = np.asarray(mask.resize((grid_w, grid_h), Image.NEAREST), dtype=np.float32)
+    index = np.where(px[..., 1] >= 128, np.rint(px[..., 0] / AREA_STEP), 0).astype(np.uint8)
+    os.makedirs(os.path.join(WEB, "areas"), exist_ok=True)
+    Image.fromarray(index).save(os.path.join(WEB, "areas", f"{scene}.png"))
+    return {"file": f"areas/{scene}.png", "scale": AREA_SCALE}
 
 
 def compose(sets):
@@ -120,6 +155,7 @@ def main():
     wanted = {a for a in sys.argv[1:] if not a.startswith("--")}
     maps_path = os.path.join(WEB, "maps.json")
     maps = json.load(open(maps_path, encoding="utf-8")) if os.path.exists(maps_path) else {}
+    area_masks = load_area_masks()
     for scene, sets in sorted(load_tiles().items()):
         if wanted and scene not in wanted:
             continue
@@ -131,6 +167,8 @@ def main():
         regions = find_regions(image)
         maps[scene] = {"name": NAMES.get(scene, f"Map {scene}"), "width": image.width, "height": image.height,
                        "maxZoom": max_zoom, "tileSize": TILE, "regions": regions}
+        if scene in area_masks:
+            maps[scene]["areaGrid"] = write_area_grid(scene, area_masks[scene], image.width, image.height)
         print(f"{scene}: {image.width}x{image.height}, zoom 0-{max_zoom}, regions {regions}")
     json.dump(maps, open(maps_path, "w", encoding="utf-8"), indent=1)
 

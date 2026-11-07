@@ -37,7 +37,7 @@ function showScene(scene) {
   const id = scene.mapId;
   if (current && current.id === id) return;
   const info = maps[id];
-  if (!info) { $("scene").textContent = `Unknown map ${id}`; return; }
+  if (!info) { $("world").textContent = id; return; }
   if (current) map.removeLayer(current.layer);
   const layer = L.tileLayer(`tiles/${id}/{z}/{x}_{y}.webp`, {
     tileSize: info.tileSize, minZoom: 0, maxNativeZoom: info.maxZoom, maxZoom: info.maxZoom + 2, noWrap: true,
@@ -47,10 +47,78 @@ function showScene(scene) {
   layer.addTo(map);
   map.setMinZoom(0);
   map.setMaxZoom(info.maxZoom + 2);
-  map.setView(toLatLng(info.width / 2, info.height / 2), 2);
-  $("scene").textContent = `${info.name} (${id})`;
+  const startZoom = Number(new URLSearchParams(location.search).get("zoom")) || 2;   // ?zoom=4 to start closer
+  map.setView(toLatLng(info.width / 2, info.height / 2), startZoom);
+  $("world").textContent = info.name;
+  loadAreas(id, info);
+  loadMarks();
   drawCalibDots();
 }
+
+// ---- location: which small area you're in, from the game's own area mask ----
+let areaGrid = null;      // { scene, scale, width, data }
+let areaNames = {};       // /api/areas for the current scene
+
+function loadAreas(id, info) {
+  areaGrid = null;
+  areaNames = {};
+  refreshAreaNames();
+  if (!info.areaGrid) return;
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, img.width, img.height).data;
+    areaGrid = { scene: id, scale: info.areaGrid.scale, width: img.width, height: img.height, data };
+  };
+  img.src = info.areaGrid.file;
+}
+
+async function refreshAreaNames() {
+  try {
+    areaNames = await (await fetch("api/areas", { cache: "no-store" })).json();
+    if (markData.marks.length) drawMarks();   // area labels need the names
+  } catch (e) { /* keep what we have */ }
+}
+setInterval(refreshAreaNames, 60000);
+
+function areaIndexAt(px, py) {
+  if (!areaGrid || !current || areaGrid.scene !== current.id) return 0;
+  const gx = Math.floor(px / areaGrid.scale);
+  const gy = Math.floor(py / areaGrid.scale);
+  if (gx < 0 || gy < 0 || gx >= areaGrid.width || gy >= areaGrid.height) return 0;
+  return areaGrid.data[(gy * areaGrid.width + gx) * 4];   // grayscale: red = index
+}
+
+function renderLocation(px, py) {
+  const index = calibrated() ? areaIndexAt(px, py) : 0;
+  const block = index && areaNames.indexToBlock ? areaNames.indexToBlock[index] : null;
+  const sub = block && areaNames.blocks ? areaNames.blocks[block] : null;
+  // Inside the small-area mask means the scene's main region; elsewhere only the world is known
+  $("region").textContent = index && areaNames.mainRegion ? areaNames.mainRegion : (current ? current.info.name : "-");
+  $("subarea").textContent = sub || "";
+}
+
+$("copy").onclick = async () => {
+  if (!state || !state.pos) return;
+  const text = `${state.pos.x.toFixed(0)}, ${state.pos.z.toFixed(0)}`;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    // Plain http on another device: clipboard API is unavailable, fall back to a hidden textarea
+    const t = document.createElement("textarea");
+    t.value = text;
+    document.body.appendChild(t);
+    t.select();
+    document.execCommand("copy");
+    t.remove();
+  }
+  $("copy").classList.add("done");
+  setTimeout(() => $("copy").classList.remove("done"), 1200);
+};
 
 // ---- state polling ----
 async function poll() {
@@ -76,9 +144,8 @@ function render() {
   }
   if (state.scene) showScene(state.scene);
   const { x, y, z } = state.pos;
-  $("x").textContent = x.toFixed(0);
-  $("z").textContent = z.toFixed(0);
-  $("y").textContent = y.toFixed(0);
+  $("coords").textContent = `${x.toFixed(0)}, ${z.toFixed(0)}`;
+  $("height").textContent = `Height ${y.toFixed(0)}`;
   if (!current) return;
   const auto = state.calibration && state.calibration.source === "auto";
   $("calibrate").style.display = auto ? "none" : "";
@@ -91,6 +158,7 @@ function render() {
   }
   setStatus(auto ? "Live" : "Live (manual calibration)", true);
   const [px, py] = worldToPixel(x, z);
+  renderLocation(px, py);
   const ll = toLatLng(px, py);
   player.setLatLng(ll);
   if (!map.hasLayer(player)) player.addTo(map);
@@ -264,6 +332,124 @@ map.on("click", (e) => {
   const p = toPixel(e.latlng);
   calibPost("add", { map: [p.x, p.y] });
 });
+
+// ---- marks: the game's map icons, mirrored from what the big map has loaded ----
+const CATEGORY_COLORS = {
+  waypoint: "#4da3ff", boss: "#ff5d5d", fight: "#ff7ad9", challenge: "#ffb35c", collection: "#ffd34d",
+  mission: "#6fdc8c", mine: "#ffffff", other: "#93a4b8", area: "#ffffff",
+};
+const ALWAYS_SHOWN = new Set(["waypoint", "boss", "area"]);   // the rest appear once zoomed in
+const DETAIL_ZOOM_FROM_MAX = 3;   // show everything at maxZoom - 3 and closer
+const STATUS_LOCKED = 1, STATUS_DONE = 3;
+const markLayers = {};            // category -> L.layerGroup
+let markData = { marks: [], categories: [] };
+let hiddenCategories = new Set(JSON.parse(localStorageGet("hiddenCategories") || "[]"));
+
+function localStorageGet(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function localStorageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch (e) { /* private mode */ }
+}
+
+async function loadMarks() {
+  try {
+    markData = await (await fetch("api/marks", { cache: "no-store" })).json();
+  } catch (e) {
+    return;
+  }
+  drawMarks();
+}
+setInterval(loadMarks, 60000);
+
+function iconFor(mark) {
+  if (!mark.icon) return null;
+  // Locked waypoints and temples use the game's "_Unknown" artwork
+  if (mark.markStatus === STATUS_LOCKED && /Transmit|Temple/.test(mark.icon)) return mark.icon.replace(".png", "_Unknown.png");
+  return mark.icon;
+}
+
+function markIcon(mark) {
+  const cls = ["mark", mark.markStatus === STATUS_LOCKED ? "locked" : "", mark.markStatus === STATUS_DONE ? "done" : ""].join(" ");
+  const icon = iconFor(mark);
+  const size = mark.category === "waypoint" || mark.category === "boss" ? 30 : 26;
+  const dot = `<i style="background:${CATEGORY_COLORS[mark.category] || "#fff"}"></i>`;
+  const html = icon ? `<img src="icons/${icon}" alt="" onerror="this.outerHTML='${dot.replace(/"/g, "&quot;")}'">` : dot;
+  return L.divIcon({ className: cls, iconSize: [size, size], iconAnchor: [size / 2, size / 2], html });
+}
+
+function areaLabelFor(mark) {
+  const names = areaNames.blocks || {};
+  return names[mark.weatherAreaId] || null;
+}
+
+function drawMarks() {
+  for (const layer of Object.values(markLayers)) layer.clearLayers();
+  if (!current) return;
+  const counts = {};
+  for (const mark of markData.marks) {
+    const cat = mark.category;
+    if (!markLayers[cat]) markLayers[cat] = L.layerGroup();
+    let marker;
+    if (cat === "area") {
+      const name = areaLabelFor(mark);
+      if (!name) continue;
+      marker = L.marker(toLatLng(mark.map[0], mark.map[1]), {
+        icon: L.divIcon({ className: "area-label", html: name, iconSize: null }), interactive: false, keyboard: false,
+      });
+    } else {
+      marker = L.marker(toLatLng(mark.map[0], mark.map[1]), { icon: markIcon(mark), keyboard: false });
+      const where = mark.world ? `${mark.world[0].toFixed(0)}, ${mark.world[1].toFixed(0)}` : "";
+      const status = mark.markStatus === STATUS_LOCKED ? "locked" : mark.markStatus === STATUS_DONE ? "completed" : "";
+      marker.bindTooltip([labelOf(cat), status, where].filter(Boolean).join(" · "), { direction: "top", offset: [0, -12] });
+    }
+    marker.addTo(markLayers[cat]);
+    counts[cat] = (counts[cat] || 0) + 1;
+  }
+  renderFilters(counts);
+  updateMarkVisibility();
+}
+
+function labelOf(cat) {
+  if (cat === "area") return "Area names";
+  const found = (markData.categories || []).find(([k]) => k === cat);
+  return found ? found[1] : cat;
+}
+
+function renderFilters(counts) {
+  const cats = [...(markData.categories || []).map(([k]) => k), "area"].filter((k) => counts[k]);
+  const sample = {};
+  for (const m of markData.marks) if (!sample[m.category] && iconFor(m)) sample[m.category] = iconFor(m);
+  $("filter-list").innerHTML = cats.map((k) => {
+    const swatch = sample[k] && k !== "area"
+      ? `<img src="icons/${sample[k]}" alt="" onerror="this.outerHTML='<i style=&quot;background:${CATEGORY_COLORS[k]}&quot;></i>'">`
+      : `<i style="background:${CATEGORY_COLORS[k]}"></i>`;
+    return `<label class="filter"><input type="checkbox" data-cat="${k}" ${hiddenCategories.has(k) ? "" : "checked"}>`
+      + `<span class="swatch">${swatch}</span><span>${labelOf(k)}</span><span class="count">${counts[k]}</span></label>`;
+  }).join("");
+  $("marks-info").textContent = markData.marks.length
+    ? "From the game's map. Open the map in game to load more."
+    : "Open the map in game once to load its markers.";
+  for (const box of $("filter-list").querySelectorAll("input")) {
+    box.onchange = () => {
+      box.checked ? hiddenCategories.delete(box.dataset.cat) : hiddenCategories.add(box.dataset.cat);
+      localStorageSet("hiddenCategories", JSON.stringify([...hiddenCategories]));
+      updateMarkVisibility();
+    };
+  }
+}
+
+function updateMarkVisibility() {
+  if (!current) return;
+  const detailed = map.getZoom() >= current.info.maxZoom - DETAIL_ZOOM_FROM_MAX;
+  for (const [cat, layer] of Object.entries(markLayers)) {
+    const show = !hiddenCategories.has(cat) && (detailed || ALWAYS_SHOWN.has(cat));
+    if (show && !map.hasLayer(layer)) layer.addTo(map);
+    if (!show && map.hasLayer(layer)) map.removeLayer(layer);
+  }
+}
+map.on("zoomend", updateMarkVisibility);
+$("filters-toggle").onclick = () => $("filters").classList.toggle("collapsed");
 
 // ---- start ----
 fetch("maps.json", { cache: "no-store" })

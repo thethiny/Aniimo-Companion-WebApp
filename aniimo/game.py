@@ -37,7 +37,10 @@ MOVE_EPSILON = 0.3            # metres between polls that count as moving
 
 
 class GameReader:
-    def __init__(self):
+    def __init__(self, collectors=()):
+        # [(name, seconds, collect(proc) -> result, on_result(scene mapId, result))]: periodic heap
+        # collections (area names, marks) that run in their own thread because they take minutes
+        self.collectors = list(collectors)
         self.lock = threading.Lock()
         self.state = {"status": "waiting", "message": "Waiting for Aniimo.exe"}
         self._stop = threading.Event()
@@ -59,6 +62,26 @@ class GameReader:
     def start(self):
         threading.Thread(target=self._fast_loop, name="GameReader.fast", daemon=True).start()
         threading.Thread(target=self._slow_loop, name="GameReader.slow", daemon=True).start()
+        if self.collectors:
+            threading.Thread(target=self._collect_loop, name="GameReader.collect", daemon=True).start()
+
+    def _collect_loop(self):
+        last = {name: -1e9 for name, *_ in self.collectors}
+        while not self._stop.is_set():
+            for name, seconds, collect, on_result in self.collectors:
+                proc, scene = self.proc, self.scene
+                if not proc or not scene or time.time() - last[name] < seconds:
+                    continue
+                last[name] = time.time()
+                try:
+                    started = time.time()
+                    result = collect(proc)
+                    on_result(scene["mapId"], result)
+                    log.info("collected %s in %.0f s: %s", name, time.time() - started,
+                             {k: len(v) for k, v in result.items() if isinstance(v, dict)})
+                except Exception as e:
+                    log.warning("collect %s: %s", name, e)
+            self._stop.wait(5)
 
     def stop(self):
         self._stop.set()
