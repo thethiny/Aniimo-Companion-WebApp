@@ -95,7 +95,7 @@ const Party = (() => {
   async function poll() {
     if (OFFLINE) return;   // the offline map has no players
     try {
-      party = Object.assign({ members: [] }, await getJson("api/party"));
+      party = Object.assign({ members: [] }, await getJson(apiUrl("api/party")));
       renderCards();
       placeArrows();
     } catch (e) { /* server restarting: keep what's shown */ }

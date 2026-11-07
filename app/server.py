@@ -19,6 +19,11 @@ from live import LiveStore  # noqa: E402
 from marks import MarkStore  # noqa: E402
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+# Sites allowed to read this server's live data from the browser ("Connect to game" on the offline map).
+# Only these: any other website you visit can't read your position or profile from this server.
+# More can be added in ANIIMO_ALLOWED_ORIGINS (comma separated), e.g. a test copy of the site.
+ALLOWED_ORIGINS = ("https://aniimo.thethiny.com",) + tuple(
+    o.strip() for o in os.environ.get("ANIIMO_ALLOWED_ORIGINS", "").split(",") if o.strip())
 COLLECT_SECONDS = 600   # names and marks appear in memory when the big map is opened; each pass scans for minutes
 # Live reads run in their own lane (thread) so the minutes-long scans never hold them up; after a first
 # search they take well under a second
@@ -66,7 +71,21 @@ class Handler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path   # "/?zoom=4" is still the page
         if path.startswith(("/api/", "/areas/")) or path in self.NO_STORE:
             self.send_header("Cache-Control", "no-store")
+        if self.headers.get("Origin") in ALLOWED_ORIGINS:   # the offline map, connected to this server
+            self.send_header("Access-Control-Allow-Origin", self.headers["Origin"])
+            self.send_header("Vary", "Origin")
         super().end_headers()
+
+    def do_OPTIONS(self):
+        """The browser's check before a public site calls this local server (CORS and Private Network
+        Access preflight): yes for the allowed sites, nothing for any other."""
+        self.send_response(204)
+        if self.headers.get("Origin") in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Methods", "GET, POST")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+            self.send_header("Access-Control-Max-Age", "600")
+        self.end_headers()
 
     def _json(self, payload, status=200):
         body = json.dumps(payload).encode()

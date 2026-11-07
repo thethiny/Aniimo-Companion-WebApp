@@ -1,9 +1,14 @@
 // Aniimo live map: polls /api/state and draws the player on the game's own map tiles.
 const POLL_MS = 200;
 const $ = (id) => document.getElementById(id);
-// Offline map (tools/build_offline.py): static files instead of the server, and no player data at all
-const OFFLINE = window.OFFLINE_MAP === true;
-const dataUrl = (api, file) => (OFFLINE ? `offline/${file}` : api);
+// The static site (tools/build_offline.py, e.g. aniimo.thethiny.com) is the offline map: static files, no player
+// data. "Connect to game" switches it to the game server running on this PC (LIVE_SERVER), whose live data it
+// then reads like the server's own page does.
+const STATIC_SITE = window.OFFLINE_MAP === true;
+const LIVE_SERVER = STATIC_SITE ? localStorageGet("liveServer") || "" : "";
+const OFFLINE = STATIC_SITE && !LIVE_SERVER;
+const apiUrl = (path) => (LIVE_SERVER ? `${LIVE_SERVER}/${path}` : path);   // every server call goes through here
+const dataUrl = (api, file) => (OFFLINE ? `offline/${file}` : apiUrl(api));
 const liveInterval = (fn, ms) => { if (!OFFLINE) setInterval(fn, ms); };   // live re-reads; offline data never changes
 
 const map = L.map("map", { crs: L.CRS.Simple, zoomControl: false, attributionControl: false, zoomSnap: 0.25 });
@@ -160,7 +165,7 @@ $("copy").onclick = async () => {
 // ---- state polling ----
 async function poll() {
   try {
-    const res = await fetch("api/state", { cache: "no-store" });
+    const res = await fetch(apiUrl("api/state"), { cache: "no-store" });
     state = await res.json();
     render();
   } catch (e) {
@@ -435,7 +440,7 @@ function drawCalibDots() {
 }
 
 async function calibPost(action, body) {
-  const res = await fetch(`api/calibration/${action}`, {
+  const res = await fetch(apiUrl(`api/calibration/${action}`), {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}),
   });
   const result = await res.json();
@@ -798,8 +803,8 @@ async function getJson(url) {
 
 async function loadHandbook() {
   try {
-    const [book, sky, me, quests] = await Promise.all([getJson("api/handbook"), getJson("api/weather"),
-      getJson("api/profile"), getJson("api/quests")]);
+    const [book, sky, me, quests] = await Promise.all(["api/handbook", "api/weather", "api/profile", "api/quests"]
+      .map((path) => getJson(apiUrl(path))));
     trackedQuests = quests;
     handbook = Object.assign({ states: {}, blockCaught: {}, tracked: null }, book);
     account = me;
@@ -1401,6 +1406,46 @@ async function startOffline() {
   const wanted = [new URLSearchParams(location.search).get("map"), localStorageGet("offlineMap")];
   picker.value = wanted.find((id) => offered.some((m) => m.id === id)) || offered[0].id;
   showOfflineMap(picker.value);
+  if (new URLSearchParams(location.search).has("connect")) connectToGame();   // ?connect: a bookmark that connects
+}
+
+// ---- "Connect to game": the static site switching to the game server on this PC, and back ----
+const LOCAL_SERVER = "http://localhost:8777";
+const CONNECT_TIMEOUT_MS = 5000;
+
+async function connectToGame() {
+  const button = $("connect");
+  button.disabled = true;
+  setStatus("Connecting to the game server on this PC...", false);
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), CONNECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${LOCAL_SERVER}/api/state`, { cache: "no-store", signal: abort.signal });
+    if (!res.ok) throw new Error(`The game server answered with an error (${res.status})`);
+    await res.json();
+    localStorageSet("liveServer", LOCAL_SERVER);
+    location.reload();   // start over in live mode
+  } catch (e) {
+    setStatus(e.name === "AbortError"
+      ? "No answer in 5 s: make sure the game server is running on this PC (python app/server.py)"
+      : e.message.startsWith("The game server") ? e.message
+      : "Couldn't connect: make sure the game server is running on this PC, and allow local network access if your browser asks", false);
+    button.disabled = false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function disconnectFromGame() {
+  localStorageSet("liveServer", "");
+  location.reload();
+}
+
+if (STATIC_SITE) {
+  $("connect").classList.remove("hidden");
+  $("connect").textContent = LIVE_SERVER ? "Disconnect" : "Connect to game";
+  $("connect").title = LIVE_SERVER ? "Back to the offline map" : "Show your live game from the server running on this PC";
+  $("connect").onclick = LIVE_SERVER ? disconnectFromGame : connectToGame;
 }
 
 // ---- start ----

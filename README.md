@@ -72,6 +72,12 @@ everything collected; every Aniimo shows as caught and every Alpha / Omega as no
 between maps (`?map=<id>` opens one directly) and the location panel follows the cursor. It needs the built
 game data (Setup step 1) and ships the area names the server collected while you played.
 
+**Connect to game** (bottom of the page) switches the site to your live game when the server runs on the same
+PC: it reaches `http://localhost:8777` within 5 seconds or says what went wrong; **Disconnect** goes back. The
+server lets only https://aniimo.thethiny.com read its live data (more sites: `ANIIMO_ALLOWED_ORIGINS`,
+comma separated). Chrome and Edge may ask once to allow local network access. Other devices can't connect
+this way (localhost is the device itself): open `http://<lan-ip>:8777/` on them. `?connect` connects on load.
+
 GitHub Pages publishes it from this branch: **Settings → Pages → Deploy from a branch → master, /docs**. The
 build is Pages-ready (relative paths, a `.nojekyll` file, and it fails if a file name's letter case doesn't
 match the page, since Pages is case-sensitive). After a rebuild, commit `docs/` on its own. `docs/CNAME` holds the custom domain (aniimo.thethiny.com); rebuilds keep it.

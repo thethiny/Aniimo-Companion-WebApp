@@ -289,7 +289,7 @@ const Collection = (() => {
 
   async function loadOwned() {
     try {
-      const data = await getJson("api/collection");
+      const data = await getJson(apiUrl("api/collection"));
       ownedByForm = new Map();
       for (const pet of data.owned || []) {
         if (!ownedByForm.has(pet.form)) ownedByForm.set(pet.form, []);
