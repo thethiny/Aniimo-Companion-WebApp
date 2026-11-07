@@ -18,3 +18,4 @@ app/web/areas/
 app/web/icons/
 app/web/maps.json
 app/web/mapdata.json
+app/web/collection.json

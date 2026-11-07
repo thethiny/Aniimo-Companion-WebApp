@@ -6,6 +6,7 @@
 <title>Aniimo Live Map</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="collection.css">
 </head>
 <body>
 <div id="map"></div>
@@ -53,6 +54,11 @@
     <span class="profile-note" id="eggs-next"></span>
     <span class="egg-slots" id="egg-slots"></span>
   </div>
+  <button class="profile-row" id="collection-open" title="Open your Aniimo collection">
+    <img src="icons/UI_Img_PetReport_CatchQuantity.png" alt="">
+    <span class="profile-value"><b>Aniilog</b></span>
+    <span class="profile-note" id="collection-summary">Collection</span>
+  </button>
 </section>
 
 <!-- Daily Activity checklist, opened from the profile: points bar with its reward chests, today's tasks -->
@@ -170,8 +176,31 @@
   </button>
 </div>
 
+<!-- Collection: full screen over the map (the map stays loaded underneath). Built on first open by collection.js -->
+<section id="collection" class="hidden" role="dialog" aria-label="Aniilog">
+  <header class="col-head">
+    <b class="col-title">Aniilog</b>
+    <nav class="col-tabs" id="col-logs"></nav>
+    <nav class="col-tabs col-modes" id="col-modes"></nav>
+    <button id="col-close" class="col-close" title="Back to the map (Esc)"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+  </header>
+  <div class="col-counters" id="col-counters"></div>
+  <div class="col-filters">
+    <label class="col-search">
+      <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20"/></svg>
+      <input id="col-search" type="search" placeholder="Search Aniimo" autocomplete="off">
+    </label>
+    <div class="col-chips" id="col-elements"></div>
+    <div class="col-chips" id="col-status"></div>
+  </div>
+  <div class="col-body">
+    <div class="col-grid" id="col-grid"></div>
+    <aside class="col-detail hidden" id="col-detail"></aside>
+  </div>
+</section>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="app.js"></script>
+<script src="collection.js"></script>
 </body>
 </html>

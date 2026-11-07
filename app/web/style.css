@@ -482,7 +482,7 @@ button.icon.done svg { stroke: var(--ok); }
 .route-mark.end { background: #ff4d8d; }
 
 .player { width: 34px; height: 34px; }
-.player svg { width: 34px; height: 34px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .7)); transition: transform .15s linear; }
+.player svg { width: 34px; height: 34px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .7)); }
 .calib-dot { width: 12px; height: 12px; border-radius: 50%; background: #ff4d8d; border: 2px solid #fff; }
 .picking .leaflet-container { cursor: crosshair; }
 

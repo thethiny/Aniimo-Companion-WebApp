@@ -2,7 +2,8 @@
 # icon and Aniimo portrait), the mark types grouped like the game's map filters, and the small areas
 # (name, level range, region, label position, the Aniimo living there) and every Aniimo's spawn areas (the
 # yellow squares the game draws when you track one). Live state (locked / completed, your own marks, what
-# you've seen and caught) comes from the server; this is the static layer.
+# you've seen and caught) comes from the server; this is the static layer. Also writes app/web/collection.json,
+# the Aniilogs for the collection page.
 # Needs extracted/lua_bc (tools/extract_bundles.py).
 # Usage: python build_mapdata.py
 import json
@@ -269,6 +270,86 @@ def build_profile(pm, text):
             "talents": build_talents(pm, text), "ranks": build_ranks(pm, text)}
 
 
+# ---- collection page (app/web/collection.json, loaded the first time the page opens) ----
+SEASON_ANIILOG = 1000          # Season 1 Keepsakes: numbered "S1" in game, no fixed maximum
+ANIILOG_ORDER = (300001, 300301, SEASON_ANIILOG)   # the game's Select Aniilog order
+# Element icon per element_prop_data name (the game's HUD element icons)
+ELEMENT_ICONS = {"Ice": "ice", "Water": "water", "Electric": "electricity", "Fire": "fire", "Grass": "grass",
+                 "Rock": "earth", "Wind": "wind", "Dark": "shadow", "Holy": "light"}
+RARITY_KEYS = {1: "INTERFACE_DISPLAY_RATING_1", 2: "INTERFACE_DISPLAY_RATING_2", 3: "INTERFACE_DISPLAY_RATING_3",
+               4: "INTERFACE_DISPLAY_RATING_4"}   # propertyScoreStage -> its name
+# Tags: name, tooltip and icon as the game shows them
+TAGS = {"sparkling": ("PET_SHINY_LABEL_TITLE", "PET_SHINY_LABEL_TIPS", "UI_Img_PetReport_Flash.png"),
+        "alpha": ("PET_LABEL_ELITE", "PET_ELITESIZE_LABEL_TIPS", "UI_Img_PetReport_Boss.png"),
+        "prismana": ("FILTER_RAINBOW", None, "UI_Img_PetReport_RainBow.png"),
+        "umbral": ("PET_DARK_LABEL_TITLE", "PET_DARK_LABEL_TIPS", "UI_Img_PetReport_Once.png")}
+# Counters along the top: their names ("_SPECIES" variants are the Family Mode wording) and icons
+COUNTERS = {"owned": ("PETMANUAL_COUNT_TXT_1", "UI_Img_PetReport_CatchQuantity.png"),
+            "sparkling": ("PETMANUAL_COUNT_TXT_2", "UI_Img_PetReport_Flash.png"),
+            "prismana": ("PETMANUAL_COUNT_TXT_3", "UI_Img_PetReport_RainBow.png"),
+            "collection": ("PETMANUAL_COUNT_TXT_5", None)}
+MODE_KEYS = {"form": "FORM", "family": "SPECIES"}
+PRISMANA_FORM = 5              # pet_form_type_data id of "Prismana Form"
+VARIANT_CHANCES = {"sparkling": "shiny_rate", "umbral": "dark_rate"}   # pet_prototype_data chance per variant
+
+
+def game_string(strings, text, key):
+    """A UI string by its gamestring_config_data key ("FORM" -> "Form Mode")."""
+    return text_of(text, (strings.get(key) or {}).get("desc")) if key else None
+
+
+def collection_icons():
+    """Icon files the collection page uses besides Aniimo heads: tags and elements."""
+    return ({icon for _, _, icon in TAGS.values()} | {icon for _, icon in COUNTERS.values() if icon}
+            | {f"UI_HUD_Element_Icon_{name}.png" for name in ELEMENT_ICONS.values()})
+
+
+def build_collection(pm, text):
+    """The Aniilogs as the game's collection shows them: per Aniilog its families in book order (each the
+    forms it holds there) and the game's totals; every form's name, icon, element and find text; and the
+    names of modes, counters, tags, rarities and personalities."""
+    strings = pm.table("gamestring_config_data")
+    countries = pm.table("country_area_data")
+    form_lists = pm.table("pet_research_country_form_list", depth=2)
+    family_lists = pm.table("pet_research_country_species_list", depth=2)
+    config = pm.table("pet_handbook_config_data", depth=2)
+    base_of = {form: base for base, forms in pm.table("pet_base_prototype_to_prototype_map", depth=2).items()
+               for form in forms.values()}
+    aniilogs, wanted = [], set()
+    for aniilog in ANIILOG_ORDER:
+        forms = list((form_lists.get(aniilog) or {}).values())
+        families = [[base, [f for f in forms if base_of.get(f, f) == base]]
+                    for base in (family_lists.get(aniilog) or {}).values()]
+        wanted.update(forms)
+        aniilogs.append({"id": aniilog, "name": text_of(text, (countries.get(aniilog) or {}).get("name")),
+                         "season": aniilog == SEASON_ANIILOG, "families": families,
+                         "maxForms": (config.get("formCollectMaxMap") or {}).get(aniilog, len(forms)),
+                         "maxFamilies": (config.get("speciesCollectMaxMap") or {}).get(aniilog, len(families))})
+    protos = pm.table("pet_prototype_data", depth=2)
+    elements = pm.table("element_prop_data")
+    forms = build_pets(pm, text, wanted)
+    for form, info in forms.items():
+        row = protos.get(form) or {}
+        if not isinstance(row.get("elementType"), dict):   # a few form rows don't decode: use their base form's
+            row = protos.get(base_of.get(form)) or {}
+        info["elements"] = [name for name in (row.get("elementType") or {}).values() if name in ELEMENT_ICONS]
+        info["prismana"] = (protos.get(form) or {}).get("formId") == PRISMANA_FORM
+        # Which variants this form can come as (a chance above zero in its config)
+        info["can"] = [tag for tag, key in VARIANT_CHANCES.items() if isinstance(row.get(key), (int, float)) and row[key] > 0]
+    return {"aniilogs": aniilogs, "forms": forms,
+            "modes": {mode: game_string(strings, text, key) for mode, key in MODE_KEYS.items()},
+            "counters": {name: {"form": game_string(strings, text, key), "family": game_string(strings, text, key + "_SPECIES"),
+                                "icon": icon} for name, (key, icon) in COUNTERS.items()},
+            "tags": {tag: {"name": game_string(strings, text, name), "desc": game_string(strings, text, desc), "icon": icon}
+                     for tag, (name, desc, icon) in TAGS.items()},
+            "elements": {name: {"name": text_of(text, row.get("name_ch")), "color": row.get("colourValue"),
+                                "icon": f"UI_HUD_Element_Icon_{ELEMENT_ICONS[name]}.png"}
+                         for row in elements.values() for name in [row.get("name")] if name in ELEMENT_ICONS},
+            "rarities": {stage: game_string(strings, text, key) for stage, key in RARITY_KEYS.items()},
+            "personalities": {nature: text_of(text, row.get("name")) for nature, row in pm.table("pet_nature_data").items()},
+            "personalityTitle": game_string(strings, text, "PET_INFO_PERSONALITY_TITLE")}
+
+
 def main():
     pm, text = PmData(), Text()
     types, groups = build_types(pm, text)
@@ -294,6 +375,10 @@ def main():
            "weathers": weathers, "scenes": scenes, "profile": build_profile(pm, text)}
     json.dump(out, open(os.path.join(WEB, "mapdata.json"), "w", encoding="utf-8"), ensure_ascii=False,
               separators=(",", ":"))
+    collection = build_collection(pm, text)
+    json.dump(collection, open(os.path.join(WEB, "collection.json"), "w", encoding="utf-8"), ensure_ascii=False,
+              separators=(",", ":"))
+    print(f"{len(collection['forms'])} Aniimo forms in {len(collection['aniilogs'])} Aniilogs -> app/web/collection.json")
     total = sum(len(s["marks"]) for s in scenes.values())
     print(f"{total} marks in {len(scenes)} scenes, {len(out['types'])} mark types, {len(pets)} Aniimo forms "
           f"({len(spawns)} with spawn areas) -> app/web/mapdata.json")

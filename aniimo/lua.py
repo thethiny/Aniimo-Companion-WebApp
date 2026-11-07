@@ -3,16 +3,20 @@ import struct
 import threading
 import time
 
+import msgpack
+
 GCSTR_SIZE = 0x18          # GCstr header, characters follow
 GCSTR_LEN = 0x14
 NODE_SIZE = 0x18           # TValue val, TValue key, next
 TAB_GCT, TAB_ARRAY, TAB_NODE, TAB_ASIZE, TAB_HMASK = 0x09, 0x10, 0x28, 0x30, 0x34
 GCT_TABLE = 11             # GCHeader.gct of a table (~LJ_TTAB)
+GCUDATA_SIZE = 0x30        # GCudata header, payload follows
 PTR_MASK = (1 << 47) - 1
+PACKED_MAX = 1 << 20       # a packed synced object's buffer is a few hundred bytes; more means a bad read
 
 # itype values (upper 17 bits of a GC64 TValue), see lj_obj.h
 NIL, FALSE, TRUE = 0x1FFFF, 0x1FFFE, 0x1FFFD
-STR, TAB = 0x1FFFB, 0x1FFF4   # ~4, ~11
+STR, UDATA, TAB = 0x1FFFB, 0x1FFF3, 0x1FFF4   # ~4, ~12, ~11
 
 
 def tag(itype, ptr):
@@ -57,6 +61,8 @@ def value(proc, raw, depth):
         return read_str(proc, raw & PTR_MASK)
     if t == TAB:
         return read_table(proc, raw & PTR_MASK, depth - 1) if depth > 0 else f"<table {raw & PTR_MASK:#x}>"
+    if t == UDATA:
+        return f"<udata {raw & PTR_MASK:#x}>"
     if t < 0x1FFF2:   # plain double
         return struct.unpack("<d", struct.pack("<Q", raw))[0]
     return f"<itype {t:#x}>"
@@ -67,6 +73,28 @@ def table_ref(value):
     if isinstance(value, str) and value.startswith("<table 0x"):
         return int(value[7:-1], 16)
     return None
+
+
+def udata_ref(value):
+    """Address of a userdata value ("<udata 0x...>"), else None."""
+    if isinstance(value, str) and value.startswith("<udata 0x"):
+        return int(value[7:-1], 16)
+    return None
+
+
+def packed_fields(proc, udata):
+    """Fields of a synced object the game hasn't unpacked yet: its "_properties" is a userdata holding
+    {buffer pointer, length} of the object's fields in msgpack. None if it doesn't read as that."""
+    head = proc.read(udata + GCUDATA_SIZE, 16)
+    if not head or len(head) < 16:
+        return None
+    buffer, length = struct.unpack("<QQ", head)
+    data = proc.read(buffer, length) if 0 < length < PACKED_MAX else None
+    try:
+        fields = msgpack.unpackb(data, strict_map_key=False) if data else None
+    except (ValueError, msgpack.UnpackException):
+        return None
+    return fields if isinstance(fields, dict) else None
 
 
 def read_table(proc, tab, depth=2):
@@ -116,7 +144,8 @@ def owner_tables(proc, nodes, max_index=256):
 
 def synced_fields(proc, address):
     """{key: value} of a synced game object (fields under "_properties") or of a plain table, one level
-    deep: nested tables stay "<table 0x...>" refs (synced objects link back to their owners and root)."""
+    deep: nested tables stay "<table 0x...>" refs (synced objects link back to their owners and root).
+    An object the game hasn't unpacked yet comes back fully decoded (plain dicts and lists)."""
     table = (read_table(proc, address, depth=0) or {}) if address else {}
     inner = table_ref(table.get("_properties"))
     root = table_ref(table.get("_root"))
@@ -126,7 +155,10 @@ def synced_fields(proc, address):
         rooted = read_table(proc, root, depth=0) or {}
         if rooted.get("_name") == table.get("_name"):
             inner = table_ref(rooted.get("_properties")) or inner
-    return (read_table(proc, inner, depth=0) or {}) if inner else table
+    if inner:
+        return read_table(proc, inner, depth=0) or {}
+    packed = udata_ref(table.get("_properties"))
+    return (packed_fields(proc, packed) or {}) if packed else table
 
 
 def synced_children(proc, address, min_key=0):

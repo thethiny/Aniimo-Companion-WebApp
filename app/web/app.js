@@ -199,27 +199,53 @@ function render() {
   if (marksWaitingForPosition && !markData.fit) drawMarks();   // marks placed by the calibration
   const [px, py] = worldToPixel(x, z);
   renderLocation(px, py);
-  const ll = toLatLng(px, py);
-  player.setLatLng(ll);
-  if (!map.hasLayer(player)) player.addTo(map);
   // Facing: map the world forward vector through the calibration to screen space
   const h = (state.heading * Math.PI) / 180;
   const dx = state.calibration.x[0] * Math.sin(h);
   const dy = state.calibration.z[0] * Math.cos(h);
   const deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
-  const svg = player.getElement() && player.getElement().querySelector("svg");
-  if (svg) svg.style.transform = `rotate(${turnTo(deg)}deg)`;
+  glideTo(px, py, deg);
+  if (!map.hasLayer(player)) player.setLatLng(toLatLng(px, py)).addTo(map);
   renderRoute();
-  if (follow && !picking) map.panTo(ll, { animate: true, duration: 0.25, noMoveStart: true });
 }
 
-// The arrow's angle keeps counting past 360 so its turn animation always takes the short way round
+// ---- arrow glide: each reading starts a slide from where the arrow is drawn now to the new spot,
+// lasting about one reading interval, so it moves every frame instead of jumping 5 times a second ----
+const SNAP_PIXELS = 150;     // a jump this far in one reading (teleport, new map) moves straight there
+let glide = null;            // { mapId, from: [px, py, angle], to: [px, py, angle], start, ms }
+let lastReading = 0;
+let mapPaused = false;       // the collection covers the map: no arrow or map moves until it closes
+
+// The arrow's angle keeps counting past 360 so a turn always takes the short way round
 // (359 to 1 turns 2 degrees on, not 358 back)
-let arrowAngle = 0;
-function turnTo(deg) {
-  arrowAngle += ((((deg - arrowAngle) % 360) + 540) % 360) - 180;
-  return arrowAngle;
+const shortTurn = (from, deg) => from + ((((deg - from) % 360) + 540) % 360) - 180;
+
+function glideAt(now) {
+  const t = Math.min(1, (now - glide.start) / glide.ms);
+  return glide.from.map((v, i) => v + (glide.to[i] - v) * t);
 }
+
+function glideTo(px, py, deg) {
+  const now = performance.now();
+  const ms = Math.min(500, Math.max(100, now - lastReading));   // the time readings actually take
+  lastReading = now;
+  const drawn = glide && glide.mapId === current.id ? glideAt(now) : null;
+  const far = !drawn || Math.hypot(px - drawn[0], py - drawn[1]) > SNAP_PIXELS;
+  const angle = drawn ? shortTurn(drawn[2], deg) : deg;
+  glide = { mapId: current.id, from: far ? [px, py, angle] : drawn, to: [px, py, angle], start: now, ms };
+}
+
+function drawArrow(now) {
+  requestAnimationFrame(drawArrow);
+  if (mapPaused || !glide || !current || glide.mapId !== current.id || !map.hasLayer(player)) return;
+  const [px, py, angle] = glideAt(now);
+  const ll = toLatLng(px, py);
+  player.setLatLng(ll);
+  const svg = player.getElement() && player.getElement().querySelector("svg");
+  if (svg) svg.style.transform = `rotate(${angle}deg)`;
+  if (follow && !picking && !map._animatingZoom) map.panTo(ll, { animate: false, noMoveStart: true });
+}
+requestAnimationFrame(drawArrow);
 
 // ---- zoom bar on the left, like the game's map ----
 function syncZoomBar() {
@@ -1092,13 +1118,18 @@ function weatherIcon(blockId, cls) {
   return `<span class="${cls}" title="${info.name || ""}${timePeriod === NIGHT ? " (night)" : ""}"><img src="icons/${file}" alt="">${moon}</span>`;
 }
 
+// An Aniimo form's name, form and icon: from the map data, else from the collection's data (forms that live
+// on no map, added when the collection page loads)
+const extraPets = {};
+const petInfo = (proto) => (markData.pets || {})[proto] || extraPets[proto] || {};
+
 function petLabel(proto) {
-  const pet = (markData.pets || {})[proto] || {};
+  const pet = petInfo(proto);
   return [pet.name || `Aniimo ${proto}`, pet.form].filter(Boolean).join(" · ");
 }
 
 function petIcon(proto, cls) {
-  const pet = (markData.pets || {})[proto] || {};
+  const pet = petInfo(proto);
   return pet.icon ? `<img class="${cls}" src="icons/${pet.icon}" alt="" onerror="this.style.visibility='hidden'">` : "";
 }
 
@@ -1239,8 +1270,9 @@ function currentTrack() {
   return handbook.tracked && String(handbook.tracked) !== String(trackClosed) ? handbook.tracked : null;
 }
 
-function setTrack(proto) {
-  pickedTrack = String(proto) === String(currentTrack()) ? null : proto;
+// Picking the Aniimo already shown stops showing it, unless `toggle` is off (the collection's "Show on map")
+function setTrack(proto, toggle = true) {
+  pickedTrack = toggle && String(proto) === String(currentTrack()) ? null : proto;
   if (!pickedTrack && handbook.tracked) trackClosed = handbook.tracked;   // un-tracking the game's pick
   renderTracking();
   renderAreaPanel();
@@ -1258,7 +1290,7 @@ function renderTracking() {
   $("track").classList.toggle("hidden", !proto);
   if (!proto || !current) return;
   $("track-icon").innerHTML = petIcon(proto, "head");
-  const pet = (markData.pets || {})[proto] || {};
+  const pet = petInfo(proto);
   $("track-name").textContent = pet.name || `Aniimo ${proto}`;
   $("track-form").textContent = pet.form || "";
   const cells = new Set();
@@ -1269,6 +1301,20 @@ function renderTracking() {
       { className: "spawn-cell", interactive: false }).addTo(spawnLayer);
   }
   $("track-where").textContent = cells.size ? "" : "Not found on this map";
+}
+
+// Zoom so every spawn cell of the tracked Aniimo is on screen (the collection's "Show on map")
+const TRACK_PADDING = [60, 60];
+const TRACK_ZOOM_OUT = 1;              // one step further out than a tight fit, to see what's around
+const TRACK_MAX_ZOOM_FROM_MAX = 2;     // never closer than maxZoom - 2, even for a single cell
+function zoomToTrack() {
+  const layers = spawnLayer.getLayers();
+  if (!layers.length) return;
+  setFollow(false);
+  const bounds = L.featureGroup(layers).getBounds();
+  const fit = map.getBoundsZoom(bounds, false, L.point(TRACK_PADDING).multiplyBy(2));
+  const zoom = Math.max(map.getMinZoom(), Math.min(fit - TRACK_ZOOM_OUT, map.getMaxZoom() - TRACK_MAX_ZOOM_FROM_MAX));
+  map.setView(bounds.getCenter(), zoom);
 }
 
 // ---- start ----

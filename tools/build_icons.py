@@ -11,7 +11,7 @@ import re
 import UnityPy
 from PIL import Image
 
-from build_mapdata import PRIMEGY, SKILL_POINT, icon_name
+from build_mapdata import PRIMEGY, SKILL_POINT, collection_icons, icon_name
 from game import BUNDLES, MANIFESTS  # noqa: E402  (found through the running game)
 from pmdata import PmData
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web", "icons")
@@ -62,7 +62,7 @@ def bundle_priority(name):
 
 
 def main():
-    wanted = icon_names() | EXTRA_ICONS | config_icons()
+    wanted = icon_names() | EXTRA_ICONS | config_icons() | {os.path.splitext(name)[0] for name in collection_icons()}
     best = {}   # icon name -> (rank, image); patches beat base bundles, sprite crops beat whole textures
     for name in sorted(os.listdir(BUNDLES)):
         priority = bundle_priority(name)
