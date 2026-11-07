@@ -27,7 +27,7 @@
     <span id="world">-</span>
   </div>
   <div class="place">
-    <div class="region" id="region">-</div>
+    <div class="region-row"><span class="region" id="region">-</span><span class="region-percent" id="region-percent"></span></div>
     <div class="subarea" id="subarea"></div>
     <div class="coords">
       <span id="coords">-</span>
@@ -35,6 +35,7 @@
         <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>
       </button>
       <span class="height" id="height"></span>
+      <span class="daytime" id="daytime"></span>
     </div>
   </div>
 </section>
@@ -51,30 +52,33 @@
     <button id="filters-all">Select all</button>
     <button id="filters-none">Deselect all</button>
   </div>
+  <div id="filter-fixed"></div>
   <div id="filter-list"></div>
   <div class="muted" id="marks-info"></div>
 </section>
 
 <!-- Small area: completion and the Aniimo living there, like the game's area panel -->
-<section class="panel hidden" id="area">
-  <div class="area-head">
-    <div>
-      <div class="area-weather" id="area-weather"></div>
-      <div class="muted" id="area-level"></div>
-      <div class="area-title" id="area-name"></div>
-    </div>
-    <button id="area-close" class="icon" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+<section class="hidden" id="area">
+  <div class="area-header">
+    <div class="area-weather" id="area-weather"></div>
+    <button id="area-close" title="Close"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+    <div class="area-level" id="area-level"></div>
+    <div class="area-title" id="area-name"></div>
   </div>
-  <div class="area-progress"><span id="area-percent">-</span><div class="bar"><div id="area-bar"></div><div id="area-tiers"></div></div></div>
+  <div class="area-progress">
+    <span class="area-pill" id="area-pill"><img src="icons/UI_Img_Map_PetArea_FloatTab_Pet_Nml.png" alt=""><span id="area-percent">-</span></span>
+    <div class="area-bar" id="area-bar"></div>
+  </div>
   <div id="area-pets"></div>
-  <div class="muted">Coloured: caught here. Grey: seen. Dark: not seen yet. Click one to show where it lives.</div>
 </section>
 
 <!-- Tracked Aniimo (yours from the game, or one picked in an area panel) -->
 <section id="track" class="hidden">
-  <span id="track-icon"></span>
+  <span class="track-portrait">
+    <span id="track-icon"></span>
+  </span>
   <span class="track-text"><b id="track-name"></b><span id="track-form"></span><span id="track-where"></span></span>
-  <button id="track-close" class="icon" title="Stop showing where it lives"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <button id="track-close" title="Stop showing where it lives"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
 </section>
 
 <section class="panel hidden" id="calib">
@@ -86,9 +90,16 @@
   </div>
 </section>
 
-<button id="center" class="map-button on" title="Follow me (keeps your zoom)">
-  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" fill="none"/></svg>
-</button>
+<!-- Zoom on the left, like the game's map: + / slider / - -->
+<div id="zoombar">
+  <button id="zoom-in" class="zoom-step" title="Zoom in">+</button>
+  <input id="zoom-range" type="range" step="0.25" aria-label="Zoom">
+  <button id="zoom-out" class="zoom-step" title="Zoom out">&minus;</button>
+  <button id="center" class="map-button on" title="Follow me (keeps your zoom)">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" fill="none"/></svg>
+  </button>
+</div>
+
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="app.js"></script>

@@ -9,12 +9,15 @@ import re
 import UnityPy
 from PIL import Image
 
-GAME = r"J:\SteamLibrary\steamapps\common\Aniimo"
-BUNDLES = os.path.join(GAME, r"Aniimo_Data\StreamingAssets\cvs\res\uab\win\DefaultPackage")
-MANIFESTS = os.path.join(GAME, r"Aniimo_Data\cvs\res\uab\win\DefaultPackage")
+from game import BUNDLES, MANIFESTS  # noqa: E402  (found through the running game)
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web", "icons")
 ICON_FOLDERS = ("/Texture/Icon/Map_MarkPoint/", "/Texture/Image/Pet_head/", "/Texture/Icon/Weather/")
-BUNDLE_PATTERNS = (r"^mres_xgui_texture_expng_", r"^ar_xgui_image_pet_he_")
+BUNDLE_PATTERNS = (r"^mres_xgui_texture_expng_", r"^ar_xgui_image_pet_he_", r"^mres_xgui_panel_expng_",
+                   r"^mres_xgui_common_expng_")
+# Single sprites from the map's own atlases: the small moon the map adds to weather icons at night, the
+# blue wink it shows when a weather-exclusive Aniimo is out, and the area panel's cat and crown
+EXTRA_ICONS = {"UI_Img_moon_small", "UI_Map_Icon_Weather5", "UI_Img_Map_PetArea_FloatTab_Pet_Nml",
+               "UI_Img_Map_PetArea_Gather_Schedule_Icon"}
 PATCH_PATTERN = re.compile(r"^xpt(\d+)_mres_expng_")   # hot patches: newer icons and replacements
 MAX_SIZE = 96   # icons are drawn at ~30 px; keep some headroom for high-DPI screens
 
@@ -25,8 +28,11 @@ def icon_names():
     names = set()
     for line in open(stab, encoding="utf-8", errors="replace"):
         line = line.strip()
-        if any(folder in line for folder in ICON_FOLDERS) and line.endswith(".png"):
-            names.add(os.path.splitext(os.path.basename(line))[0])
+        if not line.endswith(".png"):
+            continue
+        name = os.path.splitext(os.path.basename(line))[0]
+        if any(folder in line for folder in ICON_FOLDERS):
+            names.add(name)
     return names
 
 
@@ -39,7 +45,7 @@ def bundle_priority(name):
 
 
 def main():
-    wanted = icon_names()
+    wanted = icon_names() | EXTRA_ICONS
     best = {}   # icon name -> (rank, image); patches beat base bundles, sprite crops beat whole textures
     for name in sorted(os.listdir(BUNDLES)):
         priority = bundle_priority(name)

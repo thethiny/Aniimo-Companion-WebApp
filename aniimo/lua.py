@@ -126,6 +126,28 @@ def synced_children(proc, address, min_key=0):
             if isinstance(key, int) and key >= min_key and table_ref(ref)}
 
 
+class Holder:
+    """A table found by a slow search (the table holding some key node), remembered while it still
+    passes `accept(fields)`. Lua tables don't move, so after the first search reads are instant."""
+
+    def __init__(self, accept, max_index=1024):
+        self.accept, self.max_index, self.address, self.pid = accept, max_index, None, None
+
+    def fields(self, proc, nodes):
+        """Depth-0 fields of the holding table, or {} if none of `nodes` sits in an accepted table."""
+        if self.address and self.pid == proc.pid:
+            fields = read_table(proc, self.address, depth=0) or {}
+            if self.accept(fields):
+                return fields
+        self.address = None
+        for table in set(owner_tables(proc, nodes, max_index=self.max_index).values()):
+            fields = read_table(proc, table, depth=0) or {}
+            if self.accept(fields):
+                self.address, self.pid = table, proc.pid
+                return fields
+        return {}
+
+
 def tables_with_key(proc, gcstrs):
     """Node addresses (and owning node-array guesses) whose key is one of the given GCstr addresses."""
     keys = [tag(STR, a) for a in gcstrs]

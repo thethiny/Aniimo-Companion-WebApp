@@ -3,7 +3,6 @@ const POLL_MS = 200;
 const $ = (id) => document.getElementById(id);
 
 const map = L.map("map", { crs: L.CRS.Simple, zoomControl: false, attributionControl: false, zoomSnap: 0.25 });
-L.control.zoom({ position: "bottomright" }).addTo(map);
 
 let maps = {};
 let current = null;          // { id, info, layer }
@@ -46,10 +45,11 @@ function showScene(scene) {
   current = { id, info, layer };
   layer.addTo(map);
   setBorders(info);
-  map.setMinZoom(0);
   map.setMaxZoom(info.maxZoom + 2);
-  const startZoom = Number(new URLSearchParams(location.search).get("zoom")) || 2;   // ?zoom=4 to start closer
-  map.setView(toLatLng(info.width / 2, info.height / 2), startZoom);
+  limitZoomOut();
+  const startZoom = Number(new URLSearchParams(location.search).get("zoom"));   // ?zoom=4 to start there
+  if (startZoom) map.setView(toLatLng(info.width / 2, info.height / 2), startZoom);
+  else fitView();
   $("world").textContent = info.name;
   loadAreas(id, info);
   loadMarks();
@@ -111,15 +111,23 @@ function renderLocation(px, py) {
   const sub = (info && info.name) || (block && areaNames.blocks ? areaNames.blocks[block] : null);
   const region = (info && info.region) || (index && areaNames.mainRegion);
   $("region").textContent = region || (current ? current.info.name : "-");
+  const percent = info ? regionCompletion(info.regionId) : null;
+  $("region-percent").textContent = percent == null ? "" : `${percent}%`;
   $("subarea").textContent = sub || "";
   locationBlock = info ? block : null;
 }
 let locationBlock = null;   // small area you're in, opened by clicking its name
 $("subarea").onclick = () => { if (locationBlock) openArea(locationBlock); };
 
+// Coordinates as the game prints them: whole metres, four digits, sign kept ("-0626, 1693")
+function gameCoord(value) {
+  const metres = Math.round(value);
+  return (metres < 0 ? "-" : "") + String(Math.abs(metres)).padStart(4, "0");
+}
+
 $("copy").onclick = async () => {
   if (!state || !state.pos) return;
-  const text = `${state.pos.x.toFixed(0)}, ${state.pos.z.toFixed(0)}`;
+  const text = `${gameCoord(state.pos.x)}, ${gameCoord(state.pos.z)}`;
   try {
     await navigator.clipboard.writeText(text);
   } catch (e) {
@@ -159,7 +167,7 @@ function render() {
   }
   if (state.scene) showScene(state.scene);
   const { x, y, z } = state.pos;
-  $("coords").textContent = `${x.toFixed(0)}, ${z.toFixed(0)}`;
+  $("coords").textContent = `${gameCoord(x)}, ${gameCoord(z)}`;
   $("height").textContent = `Height ${y.toFixed(0)}`;
   if (!current) return;
   const auto = state.calibration && state.calibration.source === "auto";
@@ -189,6 +197,18 @@ function render() {
   if (follow && !picking) map.panTo(ll, { animate: true, duration: 0.25, noMoveStart: true });
 }
 
+// ---- zoom bar on the left, like the game's map ----
+function syncZoomBar() {
+  const range = $("zoom-range");
+  range.min = map.getMinZoom();
+  range.max = map.getMaxZoom();
+  range.value = map.getZoom();
+}
+map.on("zoom zoomlevelschange", syncZoomBar);
+$("zoom-range").oninput = (e) => map.setZoom(Number(e.target.value), { animate: false });
+$("zoom-in").onclick = () => map.zoomIn(0.5);
+$("zoom-out").onclick = () => map.zoomOut(0.5);
+
 // ---- follow (Google Maps style: dragging stops it, the button resumes it at the current zoom) ----
 function setFollow(on) {
   follow = on;
@@ -199,7 +219,26 @@ $("center").onclick = () => setFollow(true);
 map.on("dragstart", () => setFollow(false));
 
 // ---- fit: the landmass you're on (or the main one) fills the screen ----
-$("fit").onclick = () => {
+// Zooming out stops when the view is 125% of the landmasses (they fill 80% of the screen)
+const ZOOM_OUT_RATIO = 1.25;
+function landBounds() {
+  const regions = current.info.regions || [];
+  const box = regions.length
+    ? [Math.min(...regions.map((r) => r[0])), Math.min(...regions.map((r) => r[1])),
+      Math.max(...regions.map((r) => r[2])), Math.max(...regions.map((r) => r[3]))]
+    : [0, 0, current.info.width, current.info.height];
+  return L.latLngBounds(toLatLng(box[0], box[3]), toLatLng(box[2], box[1]));
+}
+
+function limitZoomOut() {
+  if (!current) return;
+  map.setMinZoom(Math.max(0, map.getBoundsZoom(landBounds()) - Math.log2(ZOOM_OUT_RATIO)));
+}
+map.on("resize", limitZoomOut);
+
+$("fit").onclick = () => fitView();
+
+function fitView() {
   if (!current) return;
   const regions = current.info.regions || [];
   let box = [0, 0, current.info.width, current.info.height];
@@ -456,11 +495,27 @@ map.on("zoom", scaleMarks);
 // Name, level range and (once read from the game) completion, like the game's map labels
 function areaLabelHtml(area) {
   const block = markData.blocks[area.id] || {};
-  const min = block.minLevel, max = block.maxLevel;
-  const level = min ? `Lv.${min}${max && max !== min ? `~${max}` : ""}` : "";
+  const level = levelRange(block);
   const completion = areaCompletion(area.id);
   const details = [level, completion != null ? `${completion}%` : ""].filter(Boolean).join(" · ");
-  return `<div>${weatherIcon(area.id, "weather")}<b>${block.name || ""}</b>${details ? `<span>${details}</span>` : ""}</div>`;
+  return `<div>${weatherIcon(area.id, "weather")}<b>${block.name || ""}</b>${exclusiveIcon(area.id)}`
+    + `${details ? `<span>${details}</span>` : ""}</div>`;
+}
+
+// The game scales Breezy Plains' level ranges with your star title (formula DYNAMIC_LV_CALC_FUNC6):
+// shown = max(L, round(0.2 L + 0.8 T)) + 1. T per star title is measured from the game's own labels;
+// unmeasured star titles show the base ranges.
+const LEVEL_SCALING = { region: 300001, weight: 0.2, targetByStarTitle: { 7: 49 } };
+
+function shownLevel(block, level) {
+  const target = LEVEL_SCALING.targetByStarTitle[handbook.starTitle];
+  if (block.regionId !== LEVEL_SCALING.region || target == null || level == null) return level;
+  return Math.max(level, Math.round(LEVEL_SCALING.weight * level + (1 - LEVEL_SCALING.weight) * target)) + 1;
+}
+
+function levelRange(block, prefix = "Lv.") {   // the area panel writes "Lv. ", map labels "Lv."
+  const min = shownLevel(block, block.minLevel), max = shownLevel(block, block.maxLevel);
+  return min ? `${prefix}${min}${max && max !== min ? `~${max}` : ""}` : "";
 }
 
 function layerFor(key) {
@@ -525,20 +580,25 @@ function renderFilters(counts) {
       + ids.map((id) => filterRow(id, markData.types[id].name, sample[id] || markData.types[id].icon, counts[id])).join("")
       + "</div>";
   }
-  if (counts[AREAS]) html += filterRow(AREAS, "Areas", null, counts[AREAS], "group-head");
   $("filter-list").innerHTML = html;
+  // Areas stay pinned above the scrolling list
+  $("filter-fixed").innerHTML = counts[AREAS] ? filterRow(AREAS, "Areas", null, counts[AREAS], "group-head") : "";
   $("marks-info").textContent = markData.marks.length
     ? "Open the map in game to refresh what you've completed."
     : "No map data yet: run tools/build_mapdata.py.";
-  for (const box of $("filter-list").querySelectorAll("input")) {
+  for (const box of filterBoxes()) {
     box.onchange = () => setTypesShown(box.dataset.types.split(","), box.checked);
   }
   syncFilterBoxes();
 }
 
 // A group's box is checked when all its types are shown, half-checked when only some are
+function filterBoxes() {
+  return [...$("filter-fixed").querySelectorAll("input"), ...$("filter-list").querySelectorAll("input")];
+}
+
 function syncFilterBoxes() {
-  for (const box of $("filter-list").querySelectorAll("input")) {
+  for (const box of filterBoxes()) {
     const ids = box.dataset.types.split(",");
     const shown = ids.filter((id) => !hiddenTypes.has(id)).length;
     box.checked = shown === ids.length;
@@ -554,7 +614,7 @@ function setTypesShown(ids, shown) {
 }
 
 function setAllShown(shown) {
-  setTypesShown([...$("filter-list").querySelectorAll("input")].flatMap((b) => b.dataset.types.split(",")), shown);
+  setTypesShown(filterBoxes().flatMap((b) => b.dataset.types.split(",")), shown);
 }
 $("filters-all").onclick = () => setAllShown(true);
 $("filters-none").onclick = () => setAllShown(false);
@@ -588,6 +648,24 @@ const CONDITION_ICONS = { snow: "UI_Img_Weather_Snow.png", rain: "UI_Img_Weather
   thunder: "UI_Img_Weather_Thunderstorm.png", storm: "UI_Img_Weather_Windstorm.png", aurora: "UI_Img_Weather_Rainbow.png" };
 let handbook = { states: {}, blockCaught: {}, tracked: null };
 let weather = {};                             // block id -> weather id, live from the game
+let timePeriod = null;                        // 1 Morning, 2 Day, 3 Dusk, 4 Night
+const TIME_PERIODS = { 1: "Morning", 2: "Day", 3: "Dusk", 4: "Night" };
+const NIGHT = 4, SUNNY = 1;
+// Weather that brings out an area's weather-only Aniimo (its condition in the area's list)
+const CONDITION_WEATHERS = { rain: [2, 12], thunder: [4], snow: [3, 13], storm: [5] };
+const EXCLUSIVE_ICON = "UI_Map_Icon_Weather5.png";   // the map's blue wink
+
+// The game winks when a weather-exclusive Aniimo is out: here, when the area's current weather is one
+// that one of its Aniimo needs
+function exclusiveOut(blockId) {
+  const conditions = Object.values((markData.blocks[blockId] || {}).conditions || {});
+  return conditions.some((c) => weatherMatches(c, blockId));
+}
+
+// Is the area's current weather the one this condition needs? (Aurora isn't read yet: never matches)
+function weatherMatches(condition, blockId) {
+  return (CONDITION_WEATHERS[condition] || []).includes(+weather[blockId]);
+}
 let pickedTrack = null;                       // Aniimo you picked here; the game's own pick otherwise
 let trackClosed = null;                       // the game's pick you dismissed here
 let openAreaId = new URLSearchParams(location.search).get("area");   // ?area=20800 opens that area's panel
@@ -602,19 +680,46 @@ async function loadHandbook() {
     const [book, sky] = await Promise.all([getJson("api/handbook"), getJson("api/weather")]);
     handbook = Object.assign({ states: {}, blockCaught: {}, tracked: null }, book);
     weather = sky.weather || {};
+    timePeriod = sky.timePeriod || null;
   } catch (e) {
     return;
   }
   if (markData.marks.length) drawMarks();   // area labels show completion
   renderAreaPanel();
   renderTracking();
+  renderTimeOfDay();
 }
 setInterval(loadHandbook, HANDBOOK_POLL_MS);
 
+// The map's weather icons follow the time of day: clear nights show the moon, other weather gets a small moon
+function weatherIconFile(weatherId) {
+  const info = (markData.weathers || {})[weatherId];
+  if (!info) return null;
+  return timePeriod === NIGHT && +weatherId === SUNNY ? "UI_Img_Time_Night.png" : info.icon;
+}
+
+function renderTimeOfDay() {
+  const name = TIME_PERIODS[timePeriod];
+  $("daytime").textContent = name || "";
+  $("daytime").className = `daytime ${name ? name.toLowerCase() : ""}`;
+}
+
 // Caught in this area (what the game's completion counts), else seen anywhere, else unseen
+// Caught in this area, else seen anywhere, else unseen
 function petState(proto, blockId) {
   if ((handbook.blockCaught[blockId] || []).includes(+proto)) return "caught";
   return (handbook.states[proto] || 0) & STATE_KNOWN ? "seen" : "unseen";
+}
+
+// A region's completion as the game shows it: caught over all Aniimo of its small areas together
+function regionCompletion(regionId) {
+  let caught = 0, total = 0;
+  for (const [id, block] of Object.entries(markData.blocks || {})) {
+    if (block.regionId !== regionId || !(block.pets || []).length || !handbook.blockCaught[id]) continue;
+    total += block.pets.length;
+    caught += block.pets.filter((p) => petState(p, id) === "caught").length;
+  }
+  return total ? Math.round((100 * caught) / total) : null;
 }
 
 function areaCompletion(blockId) {
@@ -625,8 +730,11 @@ function areaCompletion(blockId) {
 }
 
 function weatherIcon(blockId, cls) {
-  const info = (markData.weathers || {})[weather[blockId]];
-  return info && info.icon ? `<img class="${cls}" src="icons/${info.icon}" alt="" title="${info.name || ""}">` : "";
+  const id = weather[blockId], file = weatherIconFile(id);
+  if (!file) return "";
+  const info = markData.weathers[id];
+  const moon = timePeriod === NIGHT && +id !== SUNNY ? '<img class="moon" src="icons/UI_Img_moon_small.png" alt="">' : "";
+  return `<span class="${cls}" title="${info.name || ""}${timePeriod === NIGHT ? " (night)" : ""}"><img src="icons/${file}" alt="">${moon}</span>`;
 }
 
 function petLabel(proto) {
@@ -637,6 +745,12 @@ function petLabel(proto) {
 function petIcon(proto, cls) {
   const pet = (markData.pets || {})[proto] || {};
   return pet.icon ? `<img class="${cls}" src="icons/${pet.icon}" alt="" onerror="this.style.visibility='hidden'">` : "";
+}
+
+// The wink after an area's name, like the game's map
+function exclusiveIcon(blockId) {
+  return exclusiveOut(blockId)
+    ? `<img class="exclusive" src="icons/${EXCLUSIVE_ICON}" alt="" title="A weather-exclusive Aniimo is out">` : "";
 }
 
 // ---- area panel (right side, like the game's) ----
@@ -651,38 +765,80 @@ function renderAreaPanel() {
   $("area").classList.toggle("hidden", !block);
   if (!block) return;
   const completion = areaCompletion(openAreaId);
-  $("area-name").textContent = block.name;
+  $("area-name").innerHTML = `${block.name}${exclusiveIcon(openAreaId)}`;
   const sky = (markData.weathers || {})[weather[openAreaId]];
   $("area-weather").innerHTML = sky ? `${weatherIcon(openAreaId, "weather")}<span>${sky.name || ""}</span>` : "";
-  $("area-level").textContent = block.minLevel ? `Lv. ${block.minLevel}~${block.maxLevel}` : "";
+  $("area-level").textContent = levelRange(block, "Lv. ");
   $("area-percent").textContent = completion == null ? "-" : `${completion}%`;
   renderTiers(block.tiers || [], completion || 0);
-  $("area-pets").innerHTML = (block.pets || []).map((proto) => {
+  const cells = (block.pets || []).map((proto) => {
     const state = petState(proto, openAreaId);
     const tracked = String(proto) === String(currentTrack());
     const condition = (block.conditions || {})[proto];
-    return `<button class="pet ${state} ${tracked ? "tracked" : ""}" data-proto="${proto}" title="${petLabel(proto)} (${state}${condition ? `, ${condition}` : ""})">`
-      + petIcon(proto, "head") + conditionBadge(condition, state) + "</button>";
-  }).join("");
+    // Like the game: solid once caught here, faded if only seen
+    const faded = state === "seen" ? "faded" : "";
+    return `<button class="pet ${state} ${faded} ${tracked ? "tracked" : ""}" data-proto="${proto}" title="${petLabel(proto)} (${state}${condition ? `, ${condition}` : ""})">`
+      + `<span class="hex">${petIcon(proto, "head")}</span>${conditionBadge(condition, state, weatherMatches(condition, openAreaId))}</button>`;
+  });
+  $("area-pets").innerHTML = honeycombHtml(honeycombRows(cells));
   for (const button of $("area-pets").querySelectorAll(".pet")) {
     button.onclick = () => setTrack(button.dataset.proto);
   }
 }
 
-function conditionBadge(condition, state) {
+// The weather badge is solid while the area has that weather, faded otherwise
+function conditionBadge(condition, state, active) {
   if (!condition) return "";
-  if (condition === "aurora" && state === "unseen") return '<i class="badge">?</i>';
-  return `<img class="badge" src="icons/${CONDITION_ICONS[condition]}" alt="${condition}">`;
+  const cls = `badge ${active ? "" : "inactive"}`;
+  if (condition === "aurora" && state === "unseen") return `<i class="${cls}">?</i>`;
+  return `<img class="${cls}" src="icons/${CONDITION_ICONS[condition]}" alt="${condition}">`;
 }
 
 // Progress bar coloured by the tier reached, with a marker at each tier's threshold
+// Honeycomb like the game's panel: rows of 3 and 4 in turn, a short last row centred
+const HONEYCOMB_ROWS = [3, 4];
+function honeycombRows(cells) {
+  const rows = [];
+  for (let i = 0, r = 0; i < cells.length; r++) {
+    const size = HONEYCOMB_ROWS[r % HONEYCOMB_ROWS.length];
+    rows.push(cells.slice(i, i + size));
+    i += size;
+  }
+  return rows;
+}
+
+// Rows interlock when neighbours differ in odd/even size; a centred short row of the same parity as the
+// row above would sit right under it, so it gets a full gap instead of the overlap
+function honeycombHtml(rows) {
+  return rows.map((row, r) => {
+    const stacked = r > 0 && row.length % 2 === rows[r - 1].length % 2;
+    return `<div class="hex-row ${stacked ? "stacked" : ""}">${row.join("")}</div>`;
+  }).join("");
+}
+
+// Progress like the game's: the % pill and the fill take the colour of the tier reached, the fill runs to
+// the %, the rest of the section being filled previews the next tier's colour and later sections stay
+// dark; the bar is split at each threshold, the crown sits on the last threshold reached and the ones
+// still ahead are labelled
+const CROWN_ICON = '<img src="icons/UI_Img_Map_PetArea_Gather_Schedule_Icon.png" alt="">';   // the game's crown
 function renderTiers(tiers, completion) {
   const reached = tiers.filter((t) => completion >= t * 100).length;
+  const tier = reached ? TIER_NAMES[Math.min(reached, TIER_NAMES.length) - 1] : "none";
+  $("area-pill").className = `area-pill ${tier}`;
   const bar = $("area-bar");
-  bar.style.width = `${completion}%`;
-  bar.className = reached ? TIER_NAMES[Math.min(reached, TIER_NAMES.length) - 1] : "";
-  $("area-tiers").innerHTML = tiers.map((t, i) =>
-    `<i class="tier ${TIER_NAMES[i] || ""} ${completion >= t * 100 ? "reached" : ""}" style="left:${t * 100}%" title="${TIER_NAMES[i] || ""} at ${Math.round(t * 100)}%"></i>`).join("");
+  bar.className = `area-bar ${tier}`;
+  const nextTier = TIER_NAMES[Math.min(reached, TIER_NAMES.length - 1)];
+  let start = 0, html = "";
+  tiers.forEach((t, i) => {
+    const fill = Math.max(0, Math.min(1, (completion / 100 - start) / (t - start)));
+    const current = i === reached ? `current ${nextTier}` : "";   // the section being filled
+    html += `<span class="seg ${current}" style="flex:${t - start}"><i style="width:${fill * 100}%"></i></span>`;
+    start = t;
+  });
+  html += tiers.filter((t) => completion < t * 100)
+    .map((t) => `<em class="tier-label" style="left:${t * 100}%">${Math.round(t * 100)}%</em>`).join("");
+  if (reached) html += `<b class="crown" style="left:${tiers[reached - 1] * 100}%">${CROWN_ICON}</b>`;
+  bar.innerHTML = html;
 }
 
 // ---- tracking: the yellow squares where the tracked Aniimo spawns ----

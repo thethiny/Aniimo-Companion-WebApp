@@ -3,6 +3,8 @@
 #   blockCatchedPetMap               {blockId: {petPrototypeId: {isCatched, weatherId}}}  caught in that small
 #                                    area: the game's area completion is this count over the area's petList
 #   activeDistributionPetTemplateId  the Aniimo whose spawn areas the map is showing ("tracking")
+#   starTitle, level                 on your property table (the one holding your petHandbookMap); the
+#                                    star title drives the level ranges the map shows for areas
 # Synced objects keep their fields under "_properties" next to back references (_owner, _root) that lead
 # all over the heap, so the reader walks one level at a time instead of reading deep.
 # Other players' handbooks (and stale snapshots) are on the heap too. Each copy hangs off its entity's
@@ -13,6 +15,7 @@ from . import lua
 KEY_HANDBOOK, KEY_BLOCKS, KEY_TRACKED = "petHandbookMap", "blockCatchedPetMap", "activeDistributionPetTemplateId"
 STATE_KNOWN, STATE_CAUGHT = 1, 2      # PET_HBMSK_KNOWN / PET_HBMSK_CATCHED
 MIN_ID = 10000                        # Aniimo and area ids; smaller keys are type descriptors, not data
+_player = lua.Holder(lambda fields: isinstance(fields.get("starTitle"), float) and KEY_HANDBOOK in fields)
 
 
 def _mine(proc, gcstr_addrs):
@@ -31,9 +34,11 @@ def _mine(proc, gcstr_addrs):
 
 
 def collect(proc):
-    """{"states": {protoId: stateMask}, "blockCaught": {blockId: [protoId]}, "tracked": protoId or None}"""
+    """{"states": {protoId: stateMask}, "blockCaught": {blockId: [protoId]}, "tracked": protoId or None,
+        "starTitle": n, "level": n}"""
     strs = lua.find_strings(proc, [KEY_HANDBOOK, KEY_BLOCKS, KEY_TRACKED])
-    handbook = lua.synced_children(proc, _mine(proc, strs[KEY_HANDBOOK]), MIN_ID)
+    mine = _mine(proc, strs[KEY_HANDBOOK])
+    handbook = lua.synced_children(proc, mine, MIN_ID)
     states = {proto: int(entry["stateMask"]) for proto, entry in handbook.items() if isinstance(entry.get("stateMask"), float)}
     block_caught = {}
     for block, pets in lua.synced_fields(proc, _mine(proc, strs[KEY_BLOCKS])).items():
@@ -46,4 +51,8 @@ def collect(proc):
         value = lua.value(proc, raw, 0) if raw is not None else None
         if isinstance(value, float) and value > 0:
             tracked = int(value)
-    return {"states": states, "blockCaught": block_caught, "tracked": tracked}
+    own_nodes = [n for n in lua.tables_with_key(proc, strs[KEY_HANDBOOK]) if mine and ((proc.u64(n) or 0) & lua.PTR_MASK) == mine]
+    player = _player.fields(proc, own_nodes)
+    return {"states": states, "blockCaught": block_caught, "tracked": tracked,
+            "starTitle": int(player["starTitle"]) if "starTitle" in player else None,
+            "level": int(player["level"]) if isinstance(player.get("level"), float) else None}

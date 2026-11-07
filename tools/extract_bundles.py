@@ -5,8 +5,7 @@ import sys
 
 import UnityPy
 
-GAME = r"J:\SteamLibrary\steamapps\common\Aniimo"
-BUNDLES = os.path.join(GAME, r"Aniimo_Data\StreamingAssets\cvs\res\uab\win\DefaultPackage")
+from game import BUNDLES  # noqa: E402  (found through the running game)
 
 out_dir, filters = sys.argv[1], [f.lower() for f in sys.argv[2:]]
 os.makedirs(out_dir, exist_ok=True)

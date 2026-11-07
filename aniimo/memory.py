@@ -57,6 +57,14 @@ class Process:
         if not self.handle:
             raise OSError(f"OpenProcess failed: {ctypes.get_last_error()}")
 
+    def exe_path(self):
+        """Full path of the process' executable."""
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wt.DWORD(len(buf))
+        if not k32.QueryFullProcessImageNameW(self.handle, 0, buf, ctypes.byref(size)):
+            raise OSError(f"QueryFullProcessImageNameW failed: {ctypes.get_last_error()}")
+        return buf.value
+
     def alive(self):
         code = wt.DWORD()
         return bool(k32.GetExitCodeProcess(self.handle, ctypes.byref(code))) and code.value == STILL_ACTIVE

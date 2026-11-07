@@ -40,8 +40,12 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    # Pages, code and data that change while you play or between builds; icons and tiles may be cached
+    NO_STORE = ("/", "/index.html", "/app.js", "/style.css", "/maps.json", "/mapdata.json")
+
     def end_headers(self):
-        if self.path.startswith(("/api/", "/areas/")) or self.path in ("/", "/index.html", "/app.js", "/style.css", "/maps.json"):
+        path = urlparse(self.path).path   # "/?zoom=4" is still the page
+        if path.startswith(("/api/", "/areas/")) or path in self.NO_STORE:
             self.send_header("Cache-Control", "no-store")
         super().end_headers()
 

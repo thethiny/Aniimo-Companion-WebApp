@@ -12,8 +12,7 @@ import numpy as np
 import UnityPy
 from PIL import Image, ImageFilter
 
-GAME = r"J:\SteamLibrary\steamapps\common\Aniimo"
-BUNDLES = os.path.join(GAME, r"Aniimo_Data\StreamingAssets\cvs\res\uab\win\DefaultPackage")
+from game import BUNDLES  # noqa: E402  (found through the running game)
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web")
 TILE = 256
 OCEAN = (21, 63, 99)

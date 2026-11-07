@@ -97,7 +97,8 @@ def block_info(row, text, regions):
     pets = list((row.get("petList") or {}).values())
     conditions = {proto: name for name in CONDITIONS for proto in (row.get(name) or {}).values() if proto in pets}
     return {"name": text.get(row.get("areaName")), "minLevel": row.get("minLevel"), "maxLevel": row.get("maxLevel"),
-            "region": regions.get(row.get("mapAreaId")), "pets": pets, "conditions": conditions,
+            "region": regions.get(row.get("mapAreaId")), "regionId": row.get("mapAreaId"),
+            "pets": pets, "conditions": conditions,
             "tiers": [row[k] for k in TIER_KEYS if isinstance(row.get(k), (int, float))]}
 
 
