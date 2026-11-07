@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aniimo Live Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map"></div>
+
+<section class="panel" id="info">
+  <div class="row"><span class="label">Map</span><span id="scene">-</span></div>
+  <div class="coords">
+    <div><span class="label">X</span><span id="x">-</span></div>
+    <div><span class="label">Z</span><span id="z">-</span></div>
+    <div><span class="label">Height</span><span id="y">-</span></div>
+  </div>
+  <div class="row muted" id="cursor"></div>
+  <div class="row status" id="status">Connecting...</div>
+  <div class="row muted" id="route"></div>
+  <div class="buttons">
+    <button id="fit" title="Fit the island you're on to the screen">Fit</button>
+    <button id="calibrate" title="Click where you are on the map to add a reference point">Calibrate</button>
+  </div>
+</section>
+
+<button id="center" class="map-button on" title="Follow me (keeps your zoom)">
+  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" fill="none"/></svg>
+</button>
+
+<section class="panel hidden" id="calib">
+  <p id="calib-text"></p>
+  <div class="buttons">
+    <button id="calib-undo">Undo last</button>
+    <button id="calib-clear">Clear map</button>
+    <button id="calib-done">Done</button>
+  </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
