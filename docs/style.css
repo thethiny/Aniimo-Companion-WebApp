@@ -314,8 +314,13 @@ button.icon.done svg { stroke: var(--ok); }
 .area-borders { opacity: .55; }
 
 /* ---- small-area panel, like the game's: dark header fading into a light card, tier pill, honeycomb ---- */
-#area {
+#right-stack {
   position: fixed; z-index: 1000; top: 16px; right: 372px; width: 380px; max-height: calc(100vh - 32px);
+  display: flex; flex-direction: column; gap: 10px; pointer-events: none;   /* the gaps let clicks reach the map */
+}
+#right-stack > * { pointer-events: auto; }
+#area {
+  flex: 0 1 auto; min-height: 0;
   overflow-y: auto; scrollbar-width: none; border-radius: 14px; color: #2b3242;
   background: linear-gradient(180deg, #e9ecf3 0%, #f3f4f8 100%); box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
 }
@@ -514,7 +519,7 @@ button.icon.done svg { stroke: var(--ok); }
   #statusbar #cursor, #statusbar #route { display: none; }
   #filters { top: 200px; right: 8px; width: 240px; max-height: calc(100vh - 220px); }
   #calib { left: 8px; right: 8px; width: auto; top: auto; bottom: 110px; transform: none; }
-  #area { left: 8px; right: 8px; width: auto; top: auto; bottom: 110px; max-height: 60vh; }
+  #right-stack { left: 8px; right: 8px; width: auto; top: auto; bottom: 110px; max-height: 60vh; }
   #area-pets { --hex: 60px; --hex-gap: 9px; }
   #track { top: 136px; height: 52px; }
   .track-portrait, #track-icon .head { width: 44px; height: 44px; }
@@ -529,14 +534,16 @@ button.icon.done svg { stroke: var(--ok); }
   #location { padding: 10px 30px 12px 10px; gap: 10px; }
 }
 
-/* ---- wild Aniimo near you (wild.js): the tracked kind as portrait dots ringed in their rarity's colour ---- */
-.wild-dot { --ring: var(--muted); }
-.wild-dot.r1 { --ring: var(--rarity-1); } .wild-dot.r2 { --ring: var(--rarity-2); }
-.wild-dot.r3 { --ring: var(--rarity-3); } .wild-dot.r4 { --ring: var(--rarity-4); }
-.wild-dot.r5 { --ring: var(--rarity-5); }
+/* ---- wild Aniimo near you (wild.js): round portrait dots in a fixed square box, so none can stretch ---- */
+.wild-dot { width: 24px !important; height: 24px !important; }
 .wild-head {
-  width: 100%; height: 100%; display: block; box-sizing: border-box; border-radius: 50%; object-fit: cover;
-  background: #c9d3e0; border: 3px solid var(--ring); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), 0 1px 4px rgba(0, 0, 0, .6);
+  width: 24px; height: 24px; aspect-ratio: 1; display: block; box-sizing: border-box; border-radius: 50%; object-fit: cover;
+  background: #c9d3e0; border: 2.5px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), 0 1px 4px rgba(0, 0, 0, .6);
+}
+/* Pickups with a game item icon: in a round badge like the page's own pickup icons */
+.mark.badged img {
+  aspect-ratio: 1; box-sizing: border-box; padding: 3px; border-radius: 50%; object-fit: contain;
+  background: #3a4560; border: 2px solid #fff;
 }
 /* Area panel hex: how many are near you, of this map's spawn points */
 .pet .near {
@@ -545,11 +552,14 @@ button.icon.done svg { stroke: var(--ok); }
 }
 .pet .near small { font-size: 10px; font-weight: 600; opacity: .85; }
 /* Area panel: the wild Aniimo filter card under the hexes (rarities shown, variants asked for) */
-#area-wild {
-  margin: 0 12px 12px; padding: 10px 12px; border-radius: 12px; font-size: 13px;
-  background: rgba(255, 255, 255, .75); border: 1px solid rgba(47, 54, 70, .1);
+#wild-filter {
+  flex: none; padding: 10px 12px; border-radius: 14px; font-size: 13px; color: #2b3242;
+  background: linear-gradient(180deg, #e9ecf3 0%, #f3f4f8 100%); box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
 }
-#area-wild > b { display: block; margin-bottom: 6px; font-size: 14px; }
+#wild-filter.hidden { display: none; }
+/* On its own at the top: below the tracking chip when one is showing */
+body:has(#track:not(.hidden)) #area.hidden + #wild-filter { margin-top: 74px; }
+#wild-filter > b { display: block; margin-bottom: 6px; font-size: 14px; }
 .wild-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .wild-chips > span { color: #66708a; font-size: 12px; margin-right: 2px; }
 .wild-chip {
@@ -558,9 +568,5 @@ button.icon.done svg { stroke: var(--ok); }
   border: 1px solid #c9cfda; background: #fff; color: #8a91a2; font: inherit; font-size: 12px; font-weight: 600;
 }
 .wild-chip img { width: 16px; height: 16px; }
-.wild-chip i { width: 10px; height: 10px; border-radius: 50%; background: var(--chip, #aab3c2); opacity: .45; }
-.wild-chip.r1 { --chip: var(--rarity-1); } .wild-chip.r2 { --chip: var(--rarity-2); } .wild-chip.r3 { --chip: var(--rarity-3); }
-.wild-chip.r4 { --chip: var(--rarity-4); } .wild-chip.r5 { --chip: var(--rarity-5); }
 .wild-chip.on { color: #2b3242; border-color: #2b3242; background: #fff; }
-.wild-chip.on i { opacity: 1; }
 .wild-chip:not(.on) img { opacity: .45; filter: grayscale(1); }
