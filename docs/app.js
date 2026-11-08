@@ -483,7 +483,7 @@ const HAS_UNKNOWN_ICON = /MarkPoint_(Transmit|Temple|CampingCar|Camp|LeylineTree
 const markLayers = {};                 // type id (or AREAS) -> L.layerGroup
 let markData = { marks: [], types: {}, groups: [], blocks: {}, areas: [] };
 let marksWaitingForPosition = false;   // some marks need the calibration, which isn't there yet
-const DEFAULT_HIDDEN = ["10506"];      // chests: hundreds of them, off until you ask for them
+const DEFAULT_HIDDEN = ["10506", "900001"];   // chests and pickups: hundreds of them, off until you ask for them
 let hiddenTypes = new Set(JSON.parse(localStorageGet("hiddenTypes") || JSON.stringify(DEFAULT_HIDDEN)));
 let showCompleted = localStorageGet("showCompleted") !== "false";   // like the game's "Show Completed", on by default
 
@@ -526,8 +526,15 @@ function typeOf(mark) {
 // Your own marks use the icon picked in game: UI_Icon_Mark01..11, markIconIndex counts from 0
 const customMarkIcon = (index) => `UI_Icon_Mark${String(index + 1).padStart(2, "0")}.png`;
 
+// A mark's kind within its type (Pickups: Aniipod, Sparkle, Pot, ...): {name, icon}, or null
+const kindOf = (mark) => (mark.kind && (typeOf(mark).kinds || {})[mark.kind]) || null;
+
+// Game icons live in icons/; the page's own (e.g. pickups/sparkle.svg) are given with their folder
+const iconSrc = (icon) => (icon.includes("/") ? icon : `icons/${icon}`);
+
 function iconFor(mark) {
-  const icon = mark.type === TYPE_CUSTOM && mark.iconIndex != null ? customMarkIcon(mark.iconIndex) : typeOf(mark).icon;
+  const icon = mark.type === TYPE_CUSTOM && mark.iconIndex != null ? customMarkIcon(mark.iconIndex)
+    : (kindOf(mark) || {}).icon || typeOf(mark).icon;
   if (!icon) return null;
   if (mark.status === STATUS_LOCKED && HAS_UNKNOWN_ICON.test(icon)) return icon.replace(".png", "_Unknown.png");
   // Pathfinder fights: pink star while open, plain once beaten
@@ -553,7 +560,7 @@ function markHtml(mark) {
     return `<div class="boss ${BOSS_FRAMES[mark.type]}"><img class="portrait" src="icons/${mark.portrait}" alt=""`
       + ` onerror="this.src='icons/${icon}'">${BOSS_FRAME_SVG}</div>`;
   }
-  return icon ? `<img src="icons/${icon}" alt="" onerror="this.outerHTML='${DOT}'">` : DOT;
+  return icon ? `<img src="${iconSrc(icon)}" alt="" onerror="this.outerHTML='${DOT}'">` : DOT;
 }
 
 // Size and centring come from CSS so icons can grow with the zoom (see scaleMarks)
@@ -565,7 +572,7 @@ function markIcon(mark) {
 const heightText = (y) => (y == null ? "" : `Height ${Number(y).toFixed(0)}`);
 
 function markTooltip(mark) {
-  const type = typeOf(mark).name || "Mark";
+  const type = (kindOf(mark) ? `${kindOf(mark).name} · ` : "") + (typeOf(mark).name || "Mark");
   const status = mark.status === STATUS_LOCKED ? "locked" : mark.status === STATUS_DONE ? "completed"
     : mark.inactive ? "not active today" : "";
   const where = mark.world ? `${mark.world[0].toFixed(0)}, ${mark.world[1].toFixed(0)}` : "";
@@ -642,7 +649,7 @@ function drawMarks() {
 
 // ---- filters: like the game's map filter, one toggle button per mark type in its group ----
 function swatch(icon) {
-  return icon ? `<img src="icons/${icon}" alt="" onerror="this.outerHTML='${DOT}'">` : DOT;
+  return icon ? `<img src="${iconSrc(icon)}" alt="" onerror="this.outerHTML='${DOT}'">` : DOT;
 }
 
 // A type's button: icon and name, then the count in its own segment
@@ -669,7 +676,7 @@ function groupTypes(group, counts) {
 
 function renderFilters(counts) {
   const sample = {};
-  for (const m of markData.marks) if (!sample[m.type] && iconFor(m)) sample[m.type] = iconFor(m);
+  for (const m of markData.marks) if (!sample[m.type] && iconFor(m)) sample[m.type] = kindOf(m) ? typeOf(m).icon : iconFor(m);
   let html = "";
   for (const group of markData.groups || []) {
     const ids = groupTypes(group, counts);
@@ -1247,6 +1254,7 @@ function renderAreaPanel() {
     button.onmouseleave = () => renderPetDetail(selectedPet);
   }
   renderPetDetail(selectedPet);
+  renderWildFilter();
 }
 
 // ---- the card's bottom section: how to find the Aniimo you point at (or picked) ----
@@ -1379,7 +1387,41 @@ function renderTracking() {
 }
 
 // ---- wild Aniimo near you (wild.js reads them): counts on the tracking chip and the area panel's hexes ----
-const nearCount = (proto) => wildNearby.filter((w) => String(w.form) === String(proto)).length;
+// Filter (the card under the hexes): the rarities shown, and the variants asked for (none: any). It applies to
+// the dots on the map, tracked or not, and to the counts.
+const RARITY_ORDER = [1, 2, 3, 4, 5];                       // Common .. Legendary
+const VARIANT_ORDER = ["sparkling", "alpha", "umbral", "prismana"];
+let wildFilter = { rarities: RARITY_ORDER, variants: [] };
+try { Object.assign(wildFilter, JSON.parse(localStorageGet("wildFilter") || "{}")); } catch (e) { /* keep the default */ }
+const variantsOf = (wild) => [...(wild.tags || []), ...(petInfo(wild.form).prismana ? ["prismana"] : [])];
+const wildShown = (wild) => wildFilter.rarities.includes(wild.rarity || 1)
+  && (!wildFilter.variants.length || variantsOf(wild).some((v) => wildFilter.variants.includes(v)));
+
+function renderWildFilter() {
+  const profile = markData.profile || {};
+  const chip = (attr, value, on, label, icon) => `<button class="wild-chip ${attr === "rarity" ? `r${value}` : ""} ${on ? "on" : ""}" `
+    + `data-${attr}="${value}">${icon ? `<img src="icons/${icon}" alt="">` : "<i></i>"}${label}</button>`;
+  const rarities = Object.entries(profile.rarities || {})
+    .map(([stage, name]) => chip("rarity", stage, wildFilter.rarities.includes(+stage), name));
+  const variants = VARIANT_ORDER.filter((v) => (profile.tags || {})[v])
+    .map((v) => chip("variant", v, wildFilter.variants.includes(v), profile.tags[v].name, profile.tags[v].icon));
+  $("area-wild").innerHTML = `<b>Wild Aniimo near you</b><div class="wild-chips">${rarities.join("")}</div>`
+    + `<div class="wild-chips"><span>Only</span>${variants.join("")}</div>`;
+  for (const button of $("area-wild").querySelectorAll(".wild-chip")) {
+    button.onclick = () => {
+      const { rarity, variant } = button.dataset;
+      const flip = (list, value) => (list.includes(value) ? list.filter((x) => x !== value) : [...list, value]);
+      if (rarity) wildFilter.rarities = flip(wildFilter.rarities, +rarity);
+      if (variant) wildFilter.variants = flip(wildFilter.variants, variant);
+      localStorageSet("wildFilter", JSON.stringify(wildFilter));
+      renderAreaPanel();
+      renderTrackCounts();
+      if (typeof Wild !== "undefined") Wild.refresh();
+    };
+  }
+}
+
+const nearCount = (proto) => wildNearby.filter((w) => String(w.form) === String(proto) && wildShown(w)).length;
 const spawnSpots = (proto) => ((markData.spawns || {})[proto] || []).length;   // spawn points on this map
 
 // "2 / 41": how many are out near you, of the places on this map where they spawn

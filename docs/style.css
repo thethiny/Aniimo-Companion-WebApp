@@ -544,3 +544,23 @@ button.icon.done svg { stroke: var(--ok); }
   background: #2f8f4e; color: #fff; font-style: normal; font-size: 12px; font-weight: 800; line-height: 16px; white-space: nowrap;
 }
 .pet .near small { font-size: 10px; font-weight: 600; opacity: .85; }
+/* Area panel: the wild Aniimo filter card under the hexes (rarities shown, variants asked for) */
+#area-wild {
+  margin: 0 12px 12px; padding: 10px 12px; border-radius: 12px; font-size: 13px;
+  background: rgba(255, 255, 255, .75); border: 1px solid rgba(47, 54, 70, .1);
+}
+#area-wild > b { display: block; margin-bottom: 6px; font-size: 14px; }
+.wild-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.wild-chips > span { color: #66708a; font-size: 12px; margin-right: 2px; }
+.wild-chip {
+  flex: none; width: auto; height: auto; box-shadow: none;
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 6px; border-radius: 12px; cursor: pointer;
+  border: 1px solid #c9cfda; background: #fff; color: #8a91a2; font: inherit; font-size: 12px; font-weight: 600;
+}
+.wild-chip img { width: 16px; height: 16px; }
+.wild-chip i { width: 10px; height: 10px; border-radius: 50%; background: var(--chip, #aab3c2); opacity: .45; }
+.wild-chip.r1 { --chip: var(--rarity-1); } .wild-chip.r2 { --chip: var(--rarity-2); } .wild-chip.r3 { --chip: var(--rarity-3); }
+.wild-chip.r4 { --chip: var(--rarity-4); } .wild-chip.r5 { --chip: var(--rarity-5); }
+.wild-chip.on { color: #2b3242; border-color: #2b3242; background: #fff; }
+.wild-chip.on i { opacity: 1; }
+.wild-chip:not(.on) img { opacity: .45; filter: grayscale(1); }
