@@ -4,7 +4,9 @@ import json
 import os
 import threading
 
-PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "areas.json")
+from paths import DATA
+
+PATH = os.path.join(DATA, "areas.json")
 
 
 class AreaStore:

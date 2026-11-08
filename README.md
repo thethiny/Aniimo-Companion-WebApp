@@ -60,6 +60,10 @@ Python 3.9+ with `pip install UnityPy pillow numpy msgpack`. The game must be ru
    takes about 30 seconds; the first profile read 1-3 minutes.
 3. Open the printed `http://<lan-ip>:8777/` on any device on the LAN.
 
+What the server learns while you play is kept in `app/data/`. To run a second copy beside it (e.g. to test a
+change), give it its own port and data folder so it never writes yours:
+`ANIIMO_DATA=<folder> python app/server.py --port 8778`.
+
 Most maps calibrate themselves from the game's data or minimap. If one doesn't, use **Calibrate** and click
 where your in-game arrow is at two far-apart places.
 

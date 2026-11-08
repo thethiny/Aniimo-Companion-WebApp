@@ -5,7 +5,7 @@ import os
 import threading
 import time
 
-DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+from paths import DATA
 
 
 class LiveStore:

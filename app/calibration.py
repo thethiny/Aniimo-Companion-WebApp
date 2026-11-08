@@ -10,7 +10,9 @@ import math
 import os
 import threading
 
-PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "calibration.json")
+from paths import DATA
+
+PATH = os.path.join(DATA, "calibration.json")
 MAPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "maps.json")
 SAMPLE_SPACING = 25.0     # metres between kept automatic samples
 MAX_SAMPLES = 24
