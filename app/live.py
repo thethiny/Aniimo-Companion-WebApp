@@ -11,7 +11,8 @@ from paths import DATA
 class LiveStore:
     def __init__(self, name, required, keep=(), persist=True):
         """`required`: result key that must be non-empty for a read to count (empty means not loaded yet).
-        `keep`: keys whose None means "not known right now": the last known value stays.
+        `keep`: keys whose None or empty value means "not known right now": the last known value stays (the
+        game rebuilds your data on teleports and leaves some parts empty until it fills them again).
         `persist`: keep it in data/<name>.json (off for data that only means something while you play)."""
         self.path = os.path.join(DATA, f"{name}.json") if persist else None
         self.required, self.keep = required, keep
@@ -22,7 +23,7 @@ class LiveStore:
         if not found.get(self.required):
             return   # not loaded in game yet (login, loading screen): keep the last good read
         with self.lock:
-            found = dict(found, **{k: self.data[k] for k in self.keep if found.get(k) is None and k in self.data})
+            found = dict(found, **{k: self.data[k] for k in self.keep if found.get(k) in (None, {}, []) and k in self.data})
             as_json = lambda d: json.loads(json.dumps(d))   # same key types whether read from file or memory
             changed = as_json({k: v for k, v in self.data.items() if k != "updated"}) != as_json(found)
             self.data = dict(found, updated=int(time.time()))

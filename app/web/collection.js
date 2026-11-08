@@ -8,7 +8,6 @@ const Collection = (() => {
   const BIT_KNOWN = 1, BIT_CAUGHT = 2;
   const VARIANT_BITS = { sparkling: [4, 8], alpha: [32, 64], prismana: [256, 512] };   // handbook [seen, caught]
   const TAG_ORDER = ["sparkling", "alpha", "prismana", "umbral"];
-  const GENDERS = { 1: "♂", 2: "♀" };
   const STATUS_FILTERS = [["all", "All"], ["caught", "Caught"], ["seen", "Seen"], ["unseen", "Not seen"],
                           ["stored", "In storage"], ["missing", "Missing a variant"]];
   const STATE_TEXT = { caught: "Caught", seen: "Seen", unseen: "Not seen yet" };

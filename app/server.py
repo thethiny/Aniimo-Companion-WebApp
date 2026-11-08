@@ -42,8 +42,8 @@ WILD_SECONDS = 1
 PICKUPS_SECONDS = 5      # unopened chests and pickups near you (they can come back after you've opened them)
 area_store = AreaStore()
 mark_store = MarkStore()
-live = {"handbook": LiveStore("handbook", "states"), "weather": LiveStore("weather", "weather"),
-        "profile": LiveStore("profile", "name", keep=("eggs", "daily")),   # known once their screen was opened
+live = {"handbook": LiveStore("handbook", "states", keep=("blockCaught",)), "weather": LiveStore("weather", "weather"),
+        "profile": LiveStore("profile", "name", keep=("eggs", "daily", "interacted")),   # known once their screen was opened
         "quests": LiveStore("quests", "tracked"), "collection": LiveStore("collection", "owned"),
         "party": LiveStore("party", "inGame", persist=False), "wild": LiveStore("wild", "inGame", persist=False),
         "pickups": LiveStore("pickups", "inGame", persist=False)}

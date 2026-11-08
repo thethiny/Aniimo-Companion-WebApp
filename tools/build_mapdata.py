@@ -27,18 +27,22 @@ OTHER_GROUP, EVENTS_GROUP = 6, "events"
 # Aniimo eggs in the open world (Grassland Egg, Elite Egg, ...) are one-time chests placed in each map's entity
 # table, not map marks; they're drawn with the game's own egg mark ("Aniimo Egg", also used in Egg Heist)
 WORLD_EGG_TYPE = 1019
-WORLD_EGG_MODELS = ("SoulEgg", "RareEgg")   # chest models of the world eggs
+EGG_LOG_TYPE = 103   # chest_data chestLogtype of every Aniimo egg (Grassland, Incredible, Alpha, Wonder...)
 ENTITY_TABLE = re.compile(r"^Scene\.(\d+)\.scene_entity_data$")
-SANDBOX_TABLE = "Scene.{}.scene_sandbox_data"   # an entity's placement group (sandboxId): its poiType says how it appears
-# How an egg appears, by its placement group's poiType (poi_info_data); groups that are always there have no note
-EGG_NOTES = {400: "Reward for the puzzle here", 405: "Reward for the puzzle or event here",
-             504: "Reward for the puzzle here", 508: "Reward for the puzzle here",
-             2001: "Part of a quest", 4001: "Only during a limited-time event", 301: "Reward from the Branch",
-             501: "Only while its Aniimo are nesting here"}   # creature spots: the flock, nest and egg come and go together
-OTHER_LEVEL = 1003   # "other level" groups: told apart by the words in their (internal, Chinese) names
-OTHER_LEVEL_NOTES = (("流星", "Only when a meteor lands here"), ("雪", "Only in snowy weather"),
-                     ("洞穴", "In a hidden cave"))
-OTHER_LEVEL_NOTE = "Only at certain times"
+# An entity's own spawner (spawnerId) and the one of what it sits on (attachToSpawnerId, e.g. its nest): their
+# spawnType says when each appears, and an egg is only there when both are
+SPAWNER_TABLE = "Scene.{}.scene_spawner_data"
+SANDBOX_TABLE = "Scene.{}.scene_sandbox_data"   # an entity's placement group (sandboxId)
+# Spawner start types (the game's SPAWN_TYPE_* constants). Init: placed when the world starts and stays until
+# you take it, so the egg is guaranteed. Manual: the server places it only sometimes.
+SPAWN_INIT, SPAWN_SANDBOX_INIT, SPAWN_RESET = 0, 11, 15
+EGG_SOMETIMES = "Not always here: appears only sometimes"
+EGG_NOTES = {SPAWN_RESET: "Reward from the Branch"}
+# Eggs placed when their area starts: told apart by the words in their group's (internal, Chinese) name
+SANDBOX_INIT_NOTES = (("流星", "Only when a meteor lands here"), ("雪", "Only in snowy weather"))
+# Unlocks that need specific chests opened (custom_trigger_data): the spawner gated by that trigger
+# (spawnerConditionId) is the Aniimo it brings out, e.g. Tubster after every Incredible Egg in the area
+OPEN_CHEST = "OPEN_CHEST_BY_STATICID"
 # Small pickups placed in each map's entity table (not map marks), all under one "Pickups" filter button with an
 # icon per kind. Told apart by their model; the kinds without an item icon in game use the page's own icons.
 PICKUP_TYPE = 900001   # not a game mark type: the page's own
@@ -135,12 +139,41 @@ def build_scene(points, types, blocks, text):
     return {"marks": marks, "areas": areas}
 
 
-def egg_note(group):
-    """How an egg in this placement group appears ("Only when a meteor lands here"), or None if it's always there."""
-    poi, name = group.get("poiType"), group.get("name") or ""
-    if poi == OTHER_LEVEL:
-        return next((note for word, note in OTHER_LEVEL_NOTES if word in name), OTHER_LEVEL_NOTE)
-    return EGG_NOTES.get(poi)
+def egg_note(spawners, group):
+    """How an egg with these spawners (its own, then what it sits on) appears ("Only when a meteor lands
+    here"), or None if it's guaranteed (every one of them is placed when the world starts)."""
+    kind = next((s.get("spawnType") for s in spawners if s and s.get("spawnType") != SPAWN_INIT), SPAWN_INIT)
+    if kind == SPAWN_INIT:
+        return None
+    if kind == SPAWN_SANDBOX_INIT:
+        name = group.get("name") or ""
+        return next((note for word, note in SANDBOX_INIT_NOTES if word in name), EGG_SOMETIMES)
+    return EGG_NOTES.get(kind, EGG_SOMETIMES)
+
+
+def egg_unlocks(pm, text):
+    """{scene: {egg placement id: "Needed for Tubster (all 3 eggs here)"}} for the eggs an Aniimo's appearance
+    depends on: a trigger that opens only eggs, gating a spawner of that Aniimo."""
+    gated = {}   # trigger id -> the Aniimo name its spawner brings out
+    puppets = pm.table("puppet_data")
+    for name in pm.object(pm.root):
+        match = ENTITY_TABLE.match(name)
+        if not match:
+            continue
+        entities = pm.table(name, depth=2)
+        for spawner in pm.table(SPAWNER_TABLE.format(match[1]), depth=4).values():
+            trigger = spawner.get("spawnerConditionId")
+            for spawn_id in ((spawner.get("spawnGroups") or {}).get(1) or {}).get("spawnIds", {}).values():
+                puppet = puppets.get((entities.get(spawn_id) or {}).get("idInType")) or {}
+                if trigger and puppet.get("name"):
+                    gated[trigger] = text_of(text, puppet["name"])
+    needs = {}
+    for trigger_id, trigger in pm.table("custom_trigger_data", depth=4).items():
+        chests = [c.get(2) for c in (trigger.get("condition") or {}).values() if c.get(1) == OPEN_CHEST]
+        if chests and trigger_id in gated:
+            for chest in chests:
+                needs[chest] = f"One of {len(chests)} eggs needed for {gated[trigger_id]}" if len(chests) > 1                     else f"Needed for {gated[trigger_id]}"
+    return needs
 
 
 def placed(pm, wanted):
@@ -162,18 +195,24 @@ def placed_mark(entity_id, entity, type_id, **fields):
 
 
 def build_world_eggs(pm, text):
-    """{scene id: [marks]} for the Aniimo eggs placed in the open world, titled with the egg's name, with a note
-    on how the ones that aren't always there appear."""
+    """{scene id: [marks]} for the Aniimo eggs placed in the open world, titled with the egg's name. Guaranteed
+    eggs have no note; the others say how they appear; eggs an Aniimo's appearance needs say so ("need")."""
     eggs = {chest: text_of(text, row.get("name")) for chest, row in pm.table("chest_data").items()
-            if any(model in str(row.get("model")) for model in WORLD_EGG_MODELS)}
-    found, groups = {}, {}
+            if row.get("chestLogtype") == EGG_LOG_TYPE}
+    needs = egg_unlocks(pm, text)
+    found, spawners, groups = {}, {}, {}
     for scene, entity_id, entity in placed(pm, lambda template: template in eggs):
         if scene not in groups:
+            spawners[scene] = pm.table(SPAWNER_TABLE.format(scene), depth=1)
             groups[scene] = pm.table(SANDBOX_TABLE.format(scene), depth=1)
+        own, base = (spawners[scene].get(entity.get(key)) for key in ("spawnerId", "attachToSpawnerId"))
         mark = placed_mark(entity_id, entity, WORLD_EGG_TYPE, title=eggs[entity["idInType"]])
-        note = egg_note(groups[scene].get(entity.get("sandboxId")) or {})
+        note = egg_note((own, base), groups[scene].get((own or base or {}).get("sandboxId") or entity.get("sandboxId")) or {})
         if note:
             mark["note"] = note
+        need = needs.get(entity.get("staticId") or entity_id)
+        if need:
+            mark["need"] = need
         found.setdefault(scene, []).append(mark)
     return found
 

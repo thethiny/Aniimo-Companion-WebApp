@@ -1,6 +1,6 @@
 // Wild Aniimo near you: /api/wild every second (only what the game has loaded around you). Each one is a small
-// portrait dot ringed in its rarity's colour, gliding between reads (Glider, app.js): only the tracked kind
-// while you track one, every one otherwise, always through the rarity / variant filter (wildShown, app.js).
+// round portrait dot gliding between reads (Glider, app.js): only the tracked kind while you track one, every
+// one otherwise, always through the variant filter (wildShown, app.js).
 // The tracking chip and the area panel's hexes count them (app.js).
 const Wild = (() => {
   const POLL_MS = 1000;
@@ -10,15 +10,13 @@ const Wild = (() => {
   const dots = new Map();              // entity id -> { marker, glider }
   let counts = "";                     // what the counts last showed, to redraw only when they change
 
-  const rarityName = (rarity) => ((markData.profile || {}).rarities || {})[rarity] || "";
-  const dotIcon = (wild) => L.divIcon({ className: `wild-dot r${wild.rarity || 0}`, iconSize: [DOT_SIZE, DOT_SIZE],
-                                        html: petIcon(wild.form, "wild-head") });
+  const dotIcon = (wild) => L.divIcon({ className: "wild-dot", iconSize: [DOT_SIZE, DOT_SIZE], html: petIcon(wild.form, "wild-head") });
 
   function tooltip(wild) {
     const tagNames = (markData.profile || {}).tags || {};
     const tags = variantsOf(wild).map((t) => (tagNames[t] || {}).name || t);
-    return [`<b>${petLabel(wild.form)}</b>`, wild.level ? `Lv. ${wild.level}` : "",
-      rarityName(wild.rarity) + (wild.potential ? ` (best stats ${wild.potential.join(" / ")})` : ""), ...tags, heightText(wild.y)]
+    return [`<b>${petLabel(wild.form)}</b>`, wild.level ? `Lv. ${wild.level}` : "", GENDERS[wild.gender] || "", ...tags,
+      heightText(wild.y)]
       .filter(Boolean).join(" · ");
   }
 

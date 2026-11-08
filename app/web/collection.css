@@ -1,7 +1,7 @@
 /* ---- Aniilog collection: full screen over the map ---- */
 body.collection-open #map { visibility: hidden; }   /* stays laid out (Leaflet keeps its size), nothing to paint */
 body.collection-open #left-stack, body.collection-open #filters, body.collection-open #location,
-body.collection-open #statusbar, body.collection-open #zoombar, body.collection-open #area,
+body.collection-open #statusbar, body.collection-open #zoombar, body.collection-open #right-stack,
 body.collection-open #track, body.collection-open #party { display: none; }   /* map panels wider than a phone would widen the page */
 
 #collection {

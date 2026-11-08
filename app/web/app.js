@@ -545,7 +545,7 @@ function iconFor(mark) {
 function markClasses(mark) {
   return ["mark", BIG_TYPES.has(mark.type) ? "big" : "", mark.status === STATUS_LOCKED ? "locked" : "",
     mark.status === STATUS_DONE ? "done" : "", mark.inactive ? "inactive" : "",
-    mark.note ? "conditional" : ""].join(" ");   // only there sometimes (an egg after a meteor, a puzzle's reward...)
+    mark.note ? "conditional" : "", kindOf(mark) && !kindOf(mark).icon.includes("/") ? "badged" : ""].join(" ");   // only there sometimes (an egg after a meteor, a puzzle's reward...)
 }
 
 // 44 x 44 box: diamond (22,11)-(37,26)-(22,41)-(7,26), horns rising from its upper edges
@@ -577,7 +577,7 @@ function markTooltip(mark) {
     : mark.inactive ? "not active today" : "";
   const where = mark.world ? `${mark.world[0].toFixed(0)}, ${mark.world[1].toFixed(0)}` : "";
   const head = mark.title ? `<b>${mark.title}</b> · ${type}` : `<b>${type}</b>`;
-  return [head, status, mark.note, where, heightText(mark.height)].filter(Boolean).join(" · ");
+  return [head, status, mark.note, mark.need, where, heightText(mark.height)].filter(Boolean).join(" · ");
 }
 
 // Icons grow as you zoom in (like the game's map), from the zoom where all marks show
@@ -1227,6 +1227,7 @@ function openArea(blockId) {
 $("area-close").onclick = () => { openAreaId = null; selectedPet = null; renderAreaPanel(); };
 
 function renderAreaPanel() {
+  renderWildFilter();   // the filter card under the panel, or on its own when no area is open
   const block = openAreaId && markData.blocks[openAreaId];
   $("area").classList.toggle("hidden", !block);
   if (!block) return;
@@ -1254,7 +1255,6 @@ function renderAreaPanel() {
     button.onmouseleave = () => renderPetDetail(selectedPet);
   }
   renderPetDetail(selectedPet);
-  renderWildFilter();
 }
 
 // ---- the card's bottom section: how to find the Aniimo you point at (or picked) ----
@@ -1387,32 +1387,28 @@ function renderTracking() {
 }
 
 // ---- wild Aniimo near you (wild.js reads them): counts on the tracking chip and the area panel's hexes ----
-// Filter (the card under the hexes): the rarities shown, and the variants asked for (none: any). It applies to
-// the dots on the map, tracked or not, and to the counts.
-const RARITY_ORDER = [1, 2, 3, 4, 5];                       // Common .. Legendary
+// Filter (the card under the area panel): the variants asked for (none: any); they stay when you catch it.
+// It applies to the dots on the map, tracked or not, and to the counts. No rarity: a wild Aniimo's stats are
+// set again when you catch it.
 const VARIANT_ORDER = ["sparkling", "alpha", "umbral", "prismana"];
-let wildFilter = { rarities: RARITY_ORDER, variants: [] };
+let wildFilter = { variants: [] };
 try { Object.assign(wildFilter, JSON.parse(localStorageGet("wildFilter") || "{}")); } catch (e) { /* keep the default */ }
 const variantsOf = (wild) => [...(wild.tags || []), ...(petInfo(wild.form).prismana ? ["prismana"] : [])];
-const wildShown = (wild) => wildFilter.rarities.includes(wild.rarity || 1)
+const wildShown = (wild) => Boolean(petInfo(wild.form).name)   // an Aniimo (the game also uses the type for some NPCs)
   && (!wildFilter.variants.length || variantsOf(wild).some((v) => wildFilter.variants.includes(v)));
+const GENDERS = { 1: "♂", 2: "♀" };              // gender as the game stores it (owned and wild)
 
 function renderWildFilter() {
   const profile = markData.profile || {};
-  const chip = (attr, value, on, label, icon) => `<button class="wild-chip ${attr === "rarity" ? `r${value}` : ""} ${on ? "on" : ""}" `
-    + `data-${attr}="${value}">${icon ? `<img src="icons/${icon}" alt="">` : "<i></i>"}${label}</button>`;
-  const rarities = Object.entries(profile.rarities || {})
-    .map(([stage, name]) => chip("rarity", stage, wildFilter.rarities.includes(+stage), name));
-  const variants = VARIANT_ORDER.filter((v) => (profile.tags || {})[v])
-    .map((v) => chip("variant", v, wildFilter.variants.includes(v), profile.tags[v].name, profile.tags[v].icon));
-  $("area-wild").innerHTML = `<b>Wild Aniimo near you</b><div class="wild-chips">${rarities.join("")}</div>`
-    + `<div class="wild-chips"><span>Only</span>${variants.join("")}</div>`;
-  for (const button of $("area-wild").querySelectorAll(".wild-chip")) {
+  const variants = VARIANT_ORDER.filter((v) => (profile.tags || {})[v]).map((v) => `<button class="wild-chip `
+    + `${wildFilter.variants.includes(v) ? "on" : ""}" data-variant="${v}"><img src="icons/${profile.tags[v].icon}" alt="">`
+    + `${profile.tags[v].name}</button>`);
+  $("wild-filter").classList.toggle("hidden", OFFLINE);   // no live Aniimo on the offline map
+  $("wild-filter").innerHTML = `<b>Wild Aniimo near you</b><div class="wild-chips"><span>Only</span>${variants.join("")}</div>`;
+  for (const button of $("wild-filter").querySelectorAll(".wild-chip")) {
     button.onclick = () => {
-      const { rarity, variant } = button.dataset;
       const flip = (list, value) => (list.includes(value) ? list.filter((x) => x !== value) : [...list, value]);
-      if (rarity) wildFilter.rarities = flip(wildFilter.rarities, +rarity);
-      if (variant) wildFilter.variants = flip(wildFilter.variants, variant);
+      wildFilter.variants = flip(wildFilter.variants, button.dataset.variant);
       localStorageSet("wildFilter", JSON.stringify(wildFilter));
       renderAreaPanel();
       renderTrackCounts();
