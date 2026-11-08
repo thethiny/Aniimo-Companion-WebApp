@@ -187,7 +187,7 @@ function render() {
   if (state.scene) showScene(state.scene);
   const { x, y, z } = state.pos;
   $("coords").textContent = gameCoords(state.pos);
-  $("height").textContent = `Height ${y.toFixed(0)}`;
+  $("height").textContent = heightText(y);
   if (!current) return;
   if (state.scene && !maps[state.scene.mapId]) {   // an instance or event place the game has no map for
     setStatus("No map for this place", false);
@@ -537,7 +537,8 @@ function iconFor(mark) {
 
 function markClasses(mark) {
   return ["mark", BIG_TYPES.has(mark.type) ? "big" : "", mark.status === STATUS_LOCKED ? "locked" : "",
-    mark.status === STATUS_DONE ? "done" : "", mark.inactive ? "inactive" : ""].join(" ");
+    mark.status === STATUS_DONE ? "done" : "", mark.inactive ? "inactive" : "",
+    mark.note ? "conditional" : ""].join(" ");   // only there sometimes (an egg after a meteor, a puzzle's reward...)
 }
 
 // 44 x 44 box: diamond (22,11)-(37,26)-(22,41)-(7,26), horns rising from its upper edges
@@ -560,13 +561,16 @@ function markIcon(mark) {
   return L.divIcon({ className: markClasses(mark), iconSize: null, html: markHtml(mark) });
 }
 
+// "Height 147", like the location panel; "" when unknown
+const heightText = (y) => (y == null ? "" : `Height ${Number(y).toFixed(0)}`);
+
 function markTooltip(mark) {
   const type = typeOf(mark).name || "Mark";
   const status = mark.status === STATUS_LOCKED ? "locked" : mark.status === STATUS_DONE ? "completed"
     : mark.inactive ? "not active today" : "";
   const where = mark.world ? `${mark.world[0].toFixed(0)}, ${mark.world[1].toFixed(0)}` : "";
   const head = mark.title ? `<b>${mark.title}</b> · ${type}` : `<b>${type}</b>`;
-  return [head, status, where].filter(Boolean).join(" · ");
+  return [head, status, mark.note, where, heightText(mark.height)].filter(Boolean).join(" · ");
 }
 
 // Icons grow as you zoom in (like the game's map), from the zoom where all marks show
@@ -774,6 +778,7 @@ const TIER_NAMES = ["bronze", "silver", "gold"];   // area completion tiers (thr
 const CONDITION_ICONS = { snow: "UI_Img_Weather_Snow.png", rain: "UI_Img_Weather_Rainy.png",
   thunder: "UI_Img_Weather_Thunderstorm.png", storm: "UI_Img_Weather_Windstorm.png", aurora: "UI_Img_Weather_Rainbow.png" };
 let handbook = { states: {}, blockCaught: {}, tracked: null };
+let handbookRead = false;                      // the first /api/handbook has arrived
 let weather = {};                             // block id -> weather id, live from the game
 let timePeriod = null;                        // 1 Morning, 2 Day, 3 Dusk, 4 Night
 const TIME_PERIODS = { 1: "Morning", 2: "Day", 3: "Dusk", 4: "Night" };
@@ -793,8 +798,9 @@ function exclusiveOut(blockId) {
 function weatherMatches(condition, blockId) {
   return (CONDITION_WEATHERS[condition] || []).includes(+weather[blockId]);
 }
-let pickedTrack = null;                       // Aniimo you picked here; the game's own pick otherwise
+let pickedTrack = new URLSearchParams(location.search).get("track");   // Aniimo picked here (?track=1017100); else the game's pick
 let trackClosed = null;                       // the game's pick you dismissed here
+let wildNearby = [];                           // /api/wild (wild.js): the wild Aniimo loaded around you
 let openAreaId = new URLSearchParams(location.search).get("area");   // ?area=20800 opens that area's panel
 const spawnLayer = L.layerGroup().addTo(map);
 
@@ -807,6 +813,9 @@ async function loadHandbook() {
     const [book, sky, me, quests] = await Promise.all(["api/handbook", "api/weather", "api/profile", "api/quests"]
       .map((path) => getJson(apiUrl(path))));
     trackedQuests = quests;
+    // A new pick in the game shows again if you had dismissed the game's pick here; one you picked here stays
+    if (handbookRead && book.tracked && String(book.tracked) !== String(handbook.tracked)) trackClosed = null;
+    handbookRead = true;
     handbook = Object.assign({ states: {}, blockCaught: {}, tracked: null }, book);
     account = me;
     weather = sky.weather || {};
@@ -1228,7 +1237,8 @@ function renderAreaPanel() {
     // Like the game: solid once caught here, faded if only seen
     const faded = state === "seen" ? "faded" : "";
     return `<button class="pet ${state} ${faded} ${tracked ? "tracked" : ""}" data-proto="${proto}" title="${petLabel(proto)} (${state}${condition ? `, ${condition}` : ""})">`
-      + `<span class="hex">${petIcon(proto, "head")}</span>${conditionBadge(condition, state, weatherMatches(condition, openAreaId))}</button>`;
+      + `<span class="hex">${petIcon(proto, "head")}</span>${conditionBadge(condition, state, weatherMatches(condition, openAreaId))}`
+      + `${nearPill(proto)}</button>`;
   });
   $("area-pets").innerHTML = honeycombHtml(honeycombRows(cells));
   for (const button of $("area-pets").querySelectorAll(".pet")) {
@@ -1364,7 +1374,26 @@ function renderTracking() {
     L.rectangle([toLatLng(cx * SPAWN_CELL, (cy + 1) * SPAWN_CELL), toLatLng((cx + 1) * SPAWN_CELL, cy * SPAWN_CELL)],
       { className: "spawn-cell", interactive: false }).addTo(spawnLayer);
   }
-  $("track-where").textContent = cells.size ? "" : "Not found on this map";
+  $("track-where").dataset.cells = cells.size;
+  renderTrackCounts();
+}
+
+// ---- wild Aniimo near you (wild.js reads them): counts on the tracking chip and the area panel's hexes ----
+const nearCount = (proto) => wildNearby.filter((w) => String(w.form) === String(proto)).length;
+const spawnSpots = (proto) => ((markData.spawns || {})[proto] || []).length;   // spawn points on this map
+
+// "2 / 41": how many are out near you, of the places on this map where they spawn
+function nearPill(proto) {
+  const near = nearCount(proto);
+  return near ? `<i class="near" title="${near} near you, of ${spawnSpots(proto)} spawn points on this map">${near}<small>/${spawnSpots(proto)}</small></i>` : "";
+}
+
+function renderTrackCounts() {
+  const proto = currentTrack(), where = $("track-where");
+  if (!proto) return;
+  if (!Number(where.dataset.cells)) { where.textContent = "Not found on this map"; return; }
+  const near = nearCount(proto);
+  where.textContent = `${near ? `${near} near you` : "None near you"} · ${spawnSpots(proto)} spawn points`;
 }
 
 // Zoom so every spawn cell of the tracked Aniimo is on screen (the collection's "Show on map")

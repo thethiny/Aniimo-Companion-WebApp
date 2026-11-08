@@ -9,7 +9,6 @@ body.collection-open #track, body.collection-open #party { display: none; }   /*
   --card: rgba(255, 255, 255, .06);
   --card-hover: rgba(255, 255, 255, .11);
   --caught: #8fd3ff;
-  --rarity-1: #aab3c2; --rarity-2: #6fdc8c; --rarity-3: #8f9bff; --rarity-4: #ffcf5a;
   position: fixed; inset: 0; z-index: 3000; display: grid; grid-template-rows: auto auto auto 1fr;
   grid-template-columns: minmax(0, 1fr); overflow: hidden;   /* never wider than the screen */
   background: radial-gradient(120% 90% at 15% 0%, #2c2f58 0%, #171b31 55%, #10131f 100%); color: #fff;
@@ -147,6 +146,7 @@ body.collection-open #track, body.collection-open #party { display: none; }   /*
 .cd-rarity { grid-area: rarity; font-weight: 600; }
 .cd-rarity.r1 { color: var(--rarity-1); } .cd-rarity.r2 { color: var(--rarity-2); }
 .cd-rarity.r3 { color: var(--rarity-3); } .cd-rarity.r4 { color: var(--rarity-4); }
+.cd-rarity.r5 { color: var(--rarity-5); }
 .cd-personality { grid-area: personality; color: #9aa3b4; }
 .cd-owned-tags { grid-area: tags; display: flex; gap: 2px; }
 .cd-owned-tags .col-tag { width: 18px; height: 16px; }

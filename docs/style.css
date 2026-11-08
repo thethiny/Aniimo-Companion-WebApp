@@ -1,4 +1,6 @@
 :root {
+  /* Rarity colours as the game shows them: Common, Good, Elite, Perfect, Legendary */
+  --rarity-1: #5fd47a; --rarity-2: #4fa8ff; --rarity-3: #b07cff; --rarity-4: #ffd23f; --rarity-5: #ff9a3c;
   --bg: #0f1b2a;
   --panel: rgba(13, 24, 38, 0.86);
   --text: #e8eef6;
@@ -286,6 +288,12 @@ button.icon.done svg { stroke: var(--ok); }
 .mark:has(.boss).done::after { right: 8%; bottom: 0; }
 .mark.locked { opacity: .55; filter: grayscale(.8); }
 .mark.inactive { opacity: .4; filter: grayscale(1); }   /* Vein Abundance / Aniimo Discovery not active today */
+/* Only there sometimes (eggs after a meteor, puzzle rewards, events): a dashed orange ring */
+.mark.conditional::before {
+  content: ""; position: absolute; inset: -4px; border: 2px dashed #ffb347; border-radius: 50%;
+  box-shadow: 0 0 3px rgba(0, 0, 0, .7);
+}
+.mark.conditional img { opacity: .8; }
 .mark.done::after {
   content: "\2713"; position: absolute; right: -4px; bottom: -4px; width: 13px; height: 13px; border-radius: 50%;
   background: var(--ok); color: #06240f; font-size: 10px; font-weight: 800; line-height: 13px; text-align: center;
@@ -520,3 +528,19 @@ button.icon.done svg { stroke: var(--ok); }
   #zoom-range { height: 150px; }
   #location { padding: 10px 30px 12px 10px; gap: 10px; }
 }
+
+/* ---- wild Aniimo near you (wild.js): the tracked kind as portrait dots ringed in their rarity's colour ---- */
+.wild-dot { --ring: var(--muted); }
+.wild-dot.r1 { --ring: var(--rarity-1); } .wild-dot.r2 { --ring: var(--rarity-2); }
+.wild-dot.r3 { --ring: var(--rarity-3); } .wild-dot.r4 { --ring: var(--rarity-4); }
+.wild-dot.r5 { --ring: var(--rarity-5); }
+.wild-head {
+  width: 100%; height: 100%; display: block; box-sizing: border-box; border-radius: 50%; object-fit: cover;
+  background: #c9d3e0; border: 3px solid var(--ring); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), 0 1px 4px rgba(0, 0, 0, .6);
+}
+/* Area panel hex: how many are near you, of this map's spawn points */
+.pet .near {
+  position: absolute; left: 50%; bottom: -2px; transform: translateX(-50%); padding: 1px 6px; border-radius: 9px;
+  background: #2f8f4e; color: #fff; font-style: normal; font-size: 12px; font-weight: 800; line-height: 16px; white-space: nowrap;
+}
+.pet .near small { font-size: 10px; font-weight: 600; opacity: .85; }
