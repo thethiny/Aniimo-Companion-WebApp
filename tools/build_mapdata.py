@@ -17,7 +17,7 @@ SCENE_TABLE = re.compile(r"^Scene\.(\d+)\.scene_mark_point_data$")
 AREA_LABEL_TYPES = (13, 14)   # "Area Name Display": label positions, one per small area (largeAreaId)
 EVENT_FUNC_TYPES = (27, 31)   # event and survey tracking marks
 # Types the game shows without listing them in its filter panel, and the group they belong with
-EXTRA_GROUP = {10406: 1, 10407: 1, 33: 1, 10400: 2, 10415: 3, 1019: 3}
+EXTRA_GROUP = {10406: 1, 10407: 1, 33: 1, 10400: 2, 10415: 3, 1019: 3, 900001: 3}   # 900001: Pickups
 HIDDEN_TYPES = {20}           # internal transporters clustered in one spot; the game doesn't draw them
 # Event tracking types carry internal names; use what the player sees
 TYPE_NAMES = {27: "Elite Training", 29: "Special Training", 30: "Ecological Investigation",
@@ -39,6 +39,19 @@ OTHER_LEVEL = 1003   # "other level" groups: told apart by the words in their (i
 OTHER_LEVEL_NOTES = (("流星", "Only when a meteor lands here"), ("雪", "Only in snowy weather"),
                      ("洞穴", "In a hidden cave"))
 OTHER_LEVEL_NOTE = "Only at certain times"
+# Small pickups placed in each map's entity table (not map marks), all under one "Pickups" filter button with an
+# icon per kind. Told apart by their model; the kinds without an item icon in game use the page's own icons.
+PICKUP_TYPE = 900001   # not a game mark type: the page's own
+PICKUP_NAME = "Pickups"
+PICKUP_KINDS = (       # (kind, name, model fragments, icon)
+    ("aniipod", "Aniipod", ("NormalBallChest", "NormalBall_EnvObj"), "ui_item_110001.png"),
+    ("aniipod-pro", "Aniipod Pro", ("GreatBallChest", "GreatBall_EnvObj"), "ui_item_110002.png"),
+    ("starine", "Starine", ("CollectFruit_",), "ui_item_130112_big.png"),
+    ("sparkle", "Sparkle", ("DistanceShiningStar",), "pickups/sparkle.svg"),
+    ("pot", "Pot", ("PushBox_Chest",), "pickups/pot.svg"),
+    ("dig", "Dig spot", ("Mound_Mix_Chest",), "pickups/dig.svg"),
+)
+PICKUP_ICONS = [icon for _, _, _, icon in PICKUP_KINDS if "/" not in icon]   # item icons build_icons extracts
 BATTLE_ICON = re.compile(r"UI_Icon_POI_Battle_(\d+)\.png$")   # Alpha / Omega: the Aniimo you fight
 SPAWN_DECIMALS = 1
 # Per-area lists of Aniimo that only appear in some weather (the badge on their portrait in game)
@@ -130,28 +143,58 @@ def egg_note(group):
     return EGG_NOTES.get(poi)
 
 
+def placed(pm, wanted):
+    """(scene id, entity id, entity) for every placement in the maps' entity tables whose template `wanted`
+    accepts and that has a position."""
+    for name in pm.object(pm.root):
+        match = ENTITY_TABLE.match(name)
+        if not match:
+            continue
+        for entity_id, entity in pm.table(name, depth=2).items():
+            if wanted(entity.get("idInType")) and isinstance((entity.get("position") or {}).get(1), (int, float)):
+                yield match[1], entity_id, entity
+
+
+def placed_mark(entity_id, entity, type_id, **fields):
+    pos = entity["position"]
+    return dict({"id": entity_id, "type": type_id, "world": [round(pos[1], 2), round(pos[3], 2)], "height": height(pos)},
+                **fields)
+
+
 def build_world_eggs(pm, text):
     """{scene id: [marks]} for the Aniimo eggs placed in the open world, titled with the egg's name, with a note
     on how the ones that aren't always there appear."""
     eggs = {chest: text_of(text, row.get("name")) for chest, row in pm.table("chest_data").items()
             if any(model in str(row.get("model")) for model in WORLD_EGG_MODELS)}
+    found, groups = {}, {}
+    for scene, entity_id, entity in placed(pm, lambda template: template in eggs):
+        if scene not in groups:
+            groups[scene] = pm.table(SANDBOX_TABLE.format(scene), depth=1)
+        mark = placed_mark(entity_id, entity, WORLD_EGG_TYPE, title=eggs[entity["idInType"]])
+        note = egg_note(groups[scene].get(entity.get("sandboxId")) or {})
+        if note:
+            mark["note"] = note
+        found.setdefault(scene, []).append(mark)
+    return found
+
+
+def pickup_type():
+    """The "Pickups" mark type: its filter button shows the first kind's icon; marks carry their kind."""
+    return {"name": PICKUP_NAME, "icon": PICKUP_KINDS[0][3], "group": EXTRA_GROUP[PICKUP_TYPE],
+            "kinds": {kind: {"name": name, "icon": icon} for kind, name, _, icon in PICKUP_KINDS}}
+
+
+def build_pickups(pm):
+    """{scene id: [marks]} for the small pickups (PICKUP_KINDS) placed in the open world."""
+    kind_of = {}
+    for chest, row in pm.table("chest_data").items():
+        model = str(row.get("model"))
+        kind = next((kind for kind, _, fragments, _ in PICKUP_KINDS if any(f in model for f in fragments)), None)
+        if kind:
+            kind_of[chest] = kind
     found = {}
-    for name in pm.object(pm.root):
-        match = ENTITY_TABLE.match(name)
-        if not match:
-            continue
-        scene = match[1]
-        groups = None
-        for entity_id, entity in pm.table(name, depth=2).items():
-            pos = entity.get("position") or {}
-            if entity.get("idInType") in eggs and isinstance(pos.get(1), (int, float)):
-                groups = groups if groups is not None else pm.table(SANDBOX_TABLE.format(scene), depth=1)
-                mark = {"id": entity_id, "type": WORLD_EGG_TYPE, "title": eggs[entity["idInType"]],
-                        "world": [round(pos[1], 2), round(pos[3], 2)], "height": height(pos)}
-                note = egg_note(groups.get(entity.get("sandboxId")) or {})
-                if note:
-                    mark["note"] = note
-                found.setdefault(scene, []).append(mark)
+    for scene, entity_id, entity in placed(pm, lambda template: template in kind_of):
+        found.setdefault(scene, []).append(placed_mark(entity_id, entity, PICKUP_TYPE, kind=kind_of[entity["idInType"]]))
     return found
 
 
@@ -165,8 +208,9 @@ def block_info(row, text, regions):
 
 
 def build_pets(pm, text, wanted):
-    """{prototype id: {name, form, icon, condition, find}} for the given Aniimo forms. condition is the
-    game's short find condition, find its longer when / where text (both in the game's rich text)."""
+    """{prototype id: {name, form, icon, condition, find, prismana}} for the given Aniimo forms. condition is
+    the game's short find condition, find its longer when / where text (both in the game's rich text);
+    prismana: it's a Prismana form."""
     protos = pm.table("pet_prototype_data", depth=0)
     forms = {form_id: text.get(row.get("name")) for form_id, row in pm.table("pet_form_type_data").items()}
     pets = {}
@@ -174,8 +218,21 @@ def build_pets(pm, text, wanted):
         row = protos.get(proto) or {}
         pets[proto] = {"name": text.get(row.get("name")), "form": forms.get(row.get("formId")),
                        "icon": f"UI_PetHead_{row['iconName']}.png" if row.get("iconName") else None,
-                       "condition": text_of(text, row.get("condition")), "find": text_of(text, row.get("weather1"))}
+                       "condition": text_of(text, row.get("condition")), "find": text_of(text, row.get("weather1")),
+                       "prismana": row.get("formId") == PRISMANA_FORM}
     return pets
+
+
+def prismana_forms(pm):
+    """Every Prismana form (they spawn as their own forms, so wild ones are told apart by their form)."""
+    return {proto for proto, row in pm.table("pet_prototype_data", depth=0).items() if row.get("formId") == PRISMANA_FORM}
+
+
+def tag_names(pm, text):
+    """{tag: {name, desc, icon}} of the variants (Sparkling, Alpha, Prismana, Umbral) as the game shows them."""
+    strings = pm.table("gamestring_config_data")
+    return {tag: {"name": game_string(strings, text, name), "desc": game_string(strings, text, desc), "icon": icon}
+            for tag, (name, desc, icon) in TAGS.items()}
 
 
 def build_spawns(pm):
@@ -321,7 +378,8 @@ def build_profile(pm, text):
             "serverDayStart": servers.get("time", {}),
             "daily": build_daily_activity(pm, text), "eggs": build_eggs(pm, text),
             "branches": build_branches(pm, text), "quests": build_quests(pm, text),
-            "talents": build_talents(pm, text), "ranks": build_ranks(pm, text), "rarities": rarity_names(pm, text)}
+            "talents": build_talents(pm, text), "ranks": build_ranks(pm, text), "rarities": rarity_names(pm, text),
+            "tags": tag_names(pm, text)}
 
 
 # ---- collection page (app/web/collection.json, loaded the first time the page opens) ----
@@ -393,15 +451,13 @@ def build_collection(pm, text):
         if not isinstance(row.get("elementType"), dict):   # a few form rows don't decode: use their base form's
             row = protos.get(base_of.get(form)) or {}
         info["elements"] = [name for name in (row.get("elementType") or {}).values() if name in ELEMENT_ICONS]
-        info["prismana"] = (protos.get(form) or {}).get("formId") == PRISMANA_FORM
         # Which variants this form can come as (a chance above zero in its config)
         info["can"] = [tag for tag, key in VARIANT_CHANCES.items() if isinstance(row.get(key), (int, float)) and row[key] > 0]
     return {"aniilogs": aniilogs, "forms": forms,
             "modes": {mode: game_string(strings, text, key) for mode, key in MODE_KEYS.items()},
             "counters": {name: {"form": game_string(strings, text, key), "family": game_string(strings, text, key + "_SPECIES"),
                                 "icon": icon} for name, (key, icon) in COUNTERS.items()},
-            "tags": {tag: {"name": game_string(strings, text, name), "desc": game_string(strings, text, desc), "icon": icon}
-                     for tag, (name, desc, icon) in TAGS.items()},
+            "tags": tag_names(pm, text),
             "elements": {name: {"name": text_of(text, row.get("name_ch")), "color": row.get("colourValue"),
                                 "icon": f"UI_HUD_Element_Icon_{ELEMENT_ICONS[name]}.png"}
                          for row in elements.values() for name in [row.get("name")] if name in ELEMENT_ICONS},
@@ -419,7 +475,7 @@ def main():
     spawns = build_spawns(pm)
     weathers = {weather_id: {"name": text_of(text, row.get("name")), "icon": icon_name(row.get("icon"))}
                 for weather_id, row in pm.table("weather_data").items()}
-    pets = build_pets(pm, text, {p for b in blocks.values() for p in b["pets"]} | set(spawns))
+    pets = build_pets(pm, text, {p for b in blocks.values() for p in b["pets"]} | set(spawns) | prismana_forms(pm))
     scenes = {}
     for name in pm.object(pm.root):
         match = SCENE_TABLE.match(name)
@@ -429,8 +485,10 @@ def main():
         scene = build_scene(pm.table(name, depth=2), typed, blocks, text)
         if scene["marks"] or scene["areas"]:
             scenes[match[1]] = scene
-    for scene, eggs in build_world_eggs(pm, text).items():
-        scenes.setdefault(scene, {"marks": [], "areas": []})["marks"].extend(eggs)
+    types[PICKUP_TYPE] = pickup_type()
+    for found in (build_world_eggs(pm, text), build_pickups(pm)):
+        for scene, marks in found.items():
+            scenes.setdefault(scene, {"marks": [], "areas": []})["marks"].extend(marks)
     used = {m["type"] for s in scenes.values() for m in s["marks"]}
     out = {"types": {t: v for t, v in types.items() if t in used or v["group"] != OTHER_GROUP},
            "groups": groups, "blocks": blocks, "pets": pets, "spawns": spawns,

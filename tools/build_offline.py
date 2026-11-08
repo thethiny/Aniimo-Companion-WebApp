@@ -22,7 +22,7 @@ from marks import MarkStore  # noqa: E402
 DEFAULT_OUT = os.path.join(ROOT, "docs")
 PAGE_FILES = ("app.js", "style.css", "collection.js", "collection.css", "party.js", "party.css", "wild.js",
               "maps.json", "collection.json")
-FOLDERS = ("icons", "tiles", "areas")
+FOLDERS = ("icons", "tiles", "areas", "pickups")
 OFFLINE_FLAG = "<script>window.OFFLINE_MAP = true;</script>"   # read by app.js before anything loads
 UNNAMED_MAP = "Map "             # build_tiles names maps the game gives no name "Map <id>": not offered
 BUILD_MARKER = os.path.join("offline", "maps.json")   # a folder holding this is an earlier build: safe to clear

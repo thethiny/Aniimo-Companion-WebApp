@@ -25,7 +25,7 @@ SAME_SPOT = 15.0                # metres
 ROTATING_TYPES = {31, 121}      # Aniimo Discovery, Vein Abundance
 # One-time pickups: done once their id is in what you've picked up (interactRecord). The big map never lists
 # eggs or chests, and its Lumin Amber status can be older than your pickups
-PICKUP_TYPES = {1019, 10506, 10505}   # world Aniimo eggs, chests, Lumin Amber
+PICKUP_TYPES = {1019, 10506, 10505, 900001}   # world Aniimo eggs, chests, Lumin Amber, Pickups (the page's own type)
 STATUS_DONE = 3                 # markStatus of a completed mark, as the page draws it
 DAY = 86400
 

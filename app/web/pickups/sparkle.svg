@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <!-- Sparkle pickup: a four-point star on a gold badge -->
+  <circle cx="20" cy="20" r="17" fill="#f2b632" stroke="#fff" stroke-width="3"/>
+  <path d="M20 8 C21.2 16 24 18.8 32 20 C24 21.2 21.2 24 20 32 C18.8 24 16 21.2 8 20 C16 18.8 18.8 16 20 8 Z" fill="#fff"/>
+</svg>
