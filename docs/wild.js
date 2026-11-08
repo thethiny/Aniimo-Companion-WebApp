@@ -69,7 +69,7 @@ const Wild = (() => {
   async function poll() {
     if (OFFLINE) return;   // the offline map has no live Aniimo
     try {
-      wildNearby = (await getJson(apiUrl("api/wild"))).wild || [];
+      wildNearby = ((await getJson(apiUrl("api/wild"))).wild || []).map(asSpecies);
       placeDots();
       renderCounts();
     } catch (e) { /* server restarting: keep what's shown */ }

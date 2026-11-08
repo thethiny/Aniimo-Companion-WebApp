@@ -272,8 +272,26 @@ button.icon.done svg { stroke: var(--ok); }
 .mark i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--muted); box-shadow: 0 1px 3px rgba(0, 0, 0, .7); }
 
 /* Alpha / Omega: the Aniimo's portrait inside a glowing diamond with horns, like the game's map */
-.mark.big:has(.boss) { --size: calc(38px * var(--mark-scale)); }
+.mark.big:has(.boss), .mark.big:has(.alpha-mark) { --size: calc(38px * var(--mark-scale)); }
+/* Alpha: the portrait in a silver rounded diamond like the game's Alpha mark; a square turned 45° holds it,
+   so the portrait keeps its shape at any size */
+.alpha-mark { flex: none; width: var(--size); height: var(--size); display: flex; align-items: center; justify-content: center; }
+.alpha-mark span {
+  width: 68%; height: 68%; box-sizing: border-box; overflow: hidden; transform: rotate(45deg); border-radius: 24%;
+  background: #262a33; border: 2.5px solid #e4e8ee; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6), 0 1px 4px rgba(0, 0, 0, .7);
+}
+.alpha-mark .portrait {
+  display: block; width: 100%; height: 100%; aspect-ratio: 1; object-fit: cover; filter: none;
+  transform: rotate(-45deg) scale(1.42);
+}
+.mark:has(.alpha-mark).done::after { right: 8%; bottom: 0; }
 .boss { --glow: #ff2d55; position: relative; width: 100%; height: 100%; }
+/* Blessed Aniimo: the portrait in a round amber badge, as big as the mark's square (never stretched by the flex box) */
+.blessed { flex: none; width: var(--size); height: var(--size); }
+.blessed .portrait {
+  display: block; width: 100%; height: 100%; aspect-ratio: 1; box-sizing: border-box; border-radius: 50%; object-fit: cover;
+  background: #c9d3e0; border: 3px solid #f5b324; box-shadow: 0 0 6px 1px rgba(245, 179, 36, .8);
+}
 .boss.omega { --glow: #b46bff; }
 .boss .portrait {
   position: absolute; left: 15.9%; top: 25%; width: 68.2%; height: 68.2%; object-fit: cover; filter: none;

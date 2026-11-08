@@ -191,6 +191,8 @@ function render() {
   if (!current) return;
   if (state.scene && !maps[state.scene.mapId]) {   // an instance or event place the game has no map for
     setStatus("No map for this place", false);
+    $("region").textContent = ((markData.profile || {}).places || {})[state.scene.mapId] || "No map here";   // its name in game
+    $("region-percent").textContent = $("subarea").textContent = "";
     if (map.hasLayer(player)) map.removeLayer(player);
     return;
   }
@@ -225,6 +227,7 @@ function screenAngle(heading) {
 // ---- arrow glide: each reading starts a slide from where the arrow is drawn now to the new spot, lasting
 // about one reading interval, so arrows move every frame instead of jumping at each reading ----
 const SNAP_PIXELS = 150;     // a jump this far in one reading (teleport, new map) moves straight there
+const GLIDE_SHARE = 0.9;     // a slide takes this share of the time between readings, so it ends before the next
 let mapPaused = false;       // the collection covers the map: no arrow or map moves until it closes
 
 // The arrow's angle keeps counting past 360 so a turn always takes the short way round
@@ -246,14 +249,17 @@ class Glider {
     return g.from.map((v, i) => v + (g.to[i] - v) * t);
   }
 
+  // Each slide starts at the last reading (snapping there if the previous slide hadn't finished) and ends a
+  // little before the next one is due: starting from a half-done slide would blend an old turn into the new
+  // one (looking up, then right, then down mid-turn would swing the wrong way)
   to(mapId, px, py, deg) {
     const now = performance.now();
-    const ms = Math.min(this.maxMs, Math.max(100, now - this.last));   // the time readings actually take
+    const ms = GLIDE_SHARE * Math.min(this.maxMs, Math.max(100, now - this.last));   // the time readings actually take
     this.last = now;
-    const drawn = this.at(now, mapId);
-    const far = !drawn || Math.hypot(px - drawn[0], py - drawn[1]) > SNAP_PIXELS;
-    const angle = drawn ? shortTurn(drawn[2], deg) : deg;
-    this.slide = { mapId, from: far ? [px, py, angle] : drawn, to: [px, py, angle], start: now, ms };
+    const last = this.slide && this.slide.mapId === mapId ? this.slide.to : null;
+    const far = !last || Math.hypot(px - last[0], py - last[1]) > SNAP_PIXELS;
+    const angle = last ? shortTurn(last[2], deg) : deg;
+    this.slide = { mapId, from: far ? [px, py, angle] : last, to: [px, py, angle], start: now, ms };
   }
 }
 
@@ -473,7 +479,8 @@ map.on("click", (e) => {
 const TYPE_BLOOM = 10406, TYPE_ALPHA = 10404, TYPE_OMEGA = 10304, TYPE_PATHFINDER = 10510, TYPE_CUSTOM = 101;
 const FAR_TYPES = new Set([TYPE_BLOOM, TYPE_ALPHA, TYPE_OMEGA, 2000, 10407, 33]);   // shown at any zoom
 const BIG_TYPES = new Set([TYPE_BLOOM, TYPE_ALPHA, TYPE_OMEGA]);
-const BOSS_FRAMES = { [TYPE_ALPHA]: "alpha", [TYPE_OMEGA]: "omega" };   // portrait in a horned diamond
+const BOSS_FRAMES = { [TYPE_OMEGA]: "omega" };   // portrait in a horned diamond (Alpha: the game's silver diamond)
+const TYPE_BLESSED = 900002;   // Blessed Aniimo (the page's own type): their species' portrait in a round amber badge
 const AREAS = "areas";                 // filter key of the area labels and borders
 const DETAIL_ZOOM_FROM_MAX = 3;        // every other mark shows from maxZoom - 3
 const AREA_LABEL_ZOOM_FROM_MAX = 3.5;  // area names overlap further out
@@ -545,7 +552,7 @@ function iconFor(mark) {
 function markClasses(mark) {
   return ["mark", BIG_TYPES.has(mark.type) ? "big" : "", mark.status === STATUS_LOCKED ? "locked" : "",
     mark.status === STATUS_DONE ? "done" : "", mark.inactive ? "inactive" : "",
-    mark.note ? "conditional" : "", kindOf(mark) && !kindOf(mark).icon.includes("/") ? "badged" : ""].join(" ");   // only there sometimes (an egg after a meteor, a puzzle's reward...)
+    mark.note && mark.type !== TYPE_BLESSED ? "conditional" : "", kindOf(mark) && !kindOf(mark).icon.includes("/") ? "badged" : ""].join(" ");   // only there sometimes (an egg after a meteor, a puzzle's reward...)
 }
 
 // 44 x 44 box: diamond (22,11)-(37,26)-(22,41)-(7,26), horns rising from its upper edges
@@ -556,6 +563,11 @@ const DOT = "<i></i>";
 
 function markHtml(mark) {
   const icon = iconFor(mark);
+  if (mark.type === TYPE_BLESSED && petInfo(mark.form).icon) return `<div class="blessed">${petIcon(mark.form, "portrait")}</div>`;
+  if (mark.type === TYPE_ALPHA && mark.portrait) {   // like the game's Alpha mark: a silver rounded diamond
+    return `<div class="alpha-mark"><span><img class="portrait" src="icons/${mark.portrait}" alt=""`
+      + ` onerror="this.src='icons/${icon}'"></span></div>`;
+  }
   if (BOSS_FRAMES[mark.type] && mark.portrait) {
     return `<div class="boss ${BOSS_FRAMES[mark.type]}"><img class="portrait" src="icons/${mark.portrait}" alt=""`
       + ` onerror="this.src='icons/${icon}'">${BOSS_FRAME_SVG}</div>`;
@@ -1390,7 +1402,12 @@ function renderTracking() {
 // Filter (the card under the area panel): the variants asked for (none: any); they stay when you catch it.
 // It applies to the dots on the map, tracked or not, and to the counts. No rarity: a wild Aniimo's stats are
 // set again when you catch it.
-const VARIANT_ORDER = ["sparkling", "alpha", "umbral", "prismana"];
+const VARIANT_ORDER = ["sparkling", "alpha", "umbral", "prismana", "blessed"];
+// A wild Blessed Aniimo spawns as a form of its own: show it as its species, tagged "blessed"
+function asSpecies(wild) {
+  const base = ((markData.profile || {}).blessed || {})[wild.form];
+  return base ? { ...wild, form: base, tags: [...(wild.tags || []), "blessed"] } : wild;
+}
 let wildFilter = { variants: [] };
 try { Object.assign(wildFilter, JSON.parse(localStorageGet("wildFilter") || "{}")); } catch (e) { /* keep the default */ }
 const variantsOf = (wild) => [...(wild.tags || []), ...(petInfo(wild.form).prismana ? ["prismana"] : [])];
@@ -1401,7 +1418,7 @@ const GENDERS = { 1: "♂", 2: "♀" };              // gender as the game store
 function renderWildFilter() {
   const profile = markData.profile || {};
   const variants = VARIANT_ORDER.filter((v) => (profile.tags || {})[v]).map((v) => `<button class="wild-chip `
-    + `${wildFilter.variants.includes(v) ? "on" : ""}" data-variant="${v}"><img src="icons/${profile.tags[v].icon}" alt="">`
+    + `${wildFilter.variants.includes(v) ? "on" : ""}" data-variant="${v}">${profile.tags[v].icon ? `<img src="icons/${profile.tags[v].icon}" alt="">` : ""}`
     + `${profile.tags[v].name}</button>`);
   $("wild-filter").classList.toggle("hidden", OFFLINE);   // no live Aniimo on the offline map
   $("wild-filter").innerHTML = `<b>Wild Aniimo near you</b><div class="wild-chips"><span>Only</span>${variants.join("")}</div>`;
