@@ -11,6 +11,8 @@
 #   skillNodeMap                               {talent id: {lv}}: the talents you've learned and their level
 #   hatchSlotMap                               {slot: {status, endTs, item: {id}, speedUpTime}}: eggs hatching
 #                                              (filled once you open the hatch screen; slot 1 is the middle)
+#   interactRecord                             {placed object id: 1}: what you've picked up or used, world eggs
+#                                              included (an egg's id is its mark id on the map)
 # The server updates the count and the next time on every point, so between reads the page counts on
 # from these by the recovery interval.
 from . import handbook, lua
@@ -68,7 +70,8 @@ def _eggs(proc, player):
 def collect(proc):
     """{"name", "level", "exp", "rank", "headIcon", "headFrame", "serverArea", "dayReset", "weekReset",
         "primegy": {"value", "max", "nextAt"}, "daily": {"score", "tasks"}, "eggs": [...], "branches": {...},
-        "talents": {talent id: level}, "money": {item id: count}}; times are Unix seconds"""
+        "talents": {talent id: level}, "money": {item id: count}, "interacted": [placed object id]}; times are
+        Unix seconds"""
     player = handbook.live_player(proc)
     name = player.get("playerName")
     if not isinstance(name, str) or not name:
@@ -87,4 +90,6 @@ def collect(proc):
             "branches": _branches(proc, player),
             "talents": {talent: _int(fields.get("lv")) for talent, fields in
                         lua.synced_children(proc, lua.table_ref(player.get("skillNodeMap")), 1).items()},
-            "money": {item: int(count) for item, count in money.items() if isinstance(item, int) and isinstance(count, float)}}
+            "money": {item: int(count) for item, count in money.items() if isinstance(item, int) and isinstance(count, float)},
+            "interacted": sorted(int(k) for k in lua.synced_fields(proc, lua.table_ref(player.get("interactRecord")))
+                                 if isinstance(k, (int, float)) and not isinstance(k, bool))}

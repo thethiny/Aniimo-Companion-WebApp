@@ -38,7 +38,8 @@ def collect(proc):
             continue
         pos = rec.get("markPos")
         world = [pos.get(1), pos.get(3)] if isinstance(pos, dict) and isinstance(pos.get(1), float) else None
-        mark = {"scene": int(scene), "map": [mx, -my], "world": world, "icon": icon}
+        height = round(pos[2]) if isinstance(pos, dict) and isinstance(pos.get(2), float) else None
+        mark = {"scene": int(scene), "map": [mx, -my], "world": world, "height": height, "icon": icon}
         mark.update({k: int(rec[k]) for k in FIELDS if isinstance(rec.get(k), float)})
         marks[int(spawner)] = mark
     return {"marks": marks, "configIcons": config_icons}

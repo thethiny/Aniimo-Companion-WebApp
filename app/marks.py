@@ -23,6 +23,10 @@ SAME_SPOT = 15.0                # metres
 # big map builds records for the active ones only. Once the big map has been read on a scene today, the
 # places it didn't show today are sent with "inactive" (drawn faded); before that, none are.
 ROTATING_TYPES = {31, 121}      # Aniimo Discovery, Vein Abundance
+# One-time pickups: done once their id is in what you've picked up (interactRecord). The big map never lists
+# eggs or chests, and its Lumin Amber status can be older than your pickups
+PICKUP_TYPES = {1019, 10506, 10505}   # world Aniimo eggs, chests, Lumin Amber
+STATUS_DONE = 3                 # markStatus of a completed mark, as the page draws it
 DAY = 86400
 
 
@@ -76,6 +80,16 @@ def day_start(start, now):
     return start + math.floor((now - start) / DAY) * DAY
 
 
+def mark_picked_up(marks, interacted, standing):
+    """Marks PICKUP_TYPES you've already picked up as done, unless one stands near you again (`standing`:
+    unopened pickups loaded around you; some chests come back)."""
+    done = set(interacted or ()) - set(standing or ())
+    for m in marks:
+        if m.get("type") in PICKUP_TYPES and int(m["id"]) in done:
+            m["status"] = STATUS_DONE
+    return marks
+
+
 def mark_inactive(marks, live, since):
     """Flags ROTATING_TYPES marks no live read has shown since `since` (today's reset) as "inactive", once
     any read of the scene's big map has happened since then."""
@@ -123,8 +137,9 @@ class MarkStore:
             json.dump({"scenes": self.scenes, "configIcons": self.config_icons},
                       open(self.path, "w", encoding="utf-8"), ensure_ascii=False)
 
-    def get(self, scene, since=None):
-        """Everything the page needs to draw a scene's marks and area labels. `since`: today's daily reset."""
+    def get(self, scene, since=None, interacted=(), standing=()):
+        """Everything the page needs to draw a scene's marks and area labels. `since`: today's daily reset;
+        `interacted`: ids of the placed objects you've picked up or used; `standing`: unopened ones near you."""
         static = self.static.get()
         types = static.get("types", {})
         scene_static = static.get("scenes", {}).get(str(scene), {})
@@ -136,9 +151,10 @@ class MarkStore:
             if spawner in marks:
                 marks[spawner].update(fields)
             elif str(record.get("markConfigId")) in types:   # only the live map knows these: your marks, quests...
-                marks[spawner] = dict(fields, id=spawner, type=record["markConfigId"], world=record.get("world"))
+                marks[spawner] = dict(fields, id=spawner, type=record["markConfigId"], world=record.get("world"),
+                                      height=record.get("height"))
         spawns = {proto: scenes[str(scene)] for proto, scenes in static.get("spawns", {}).items() if str(scene) in scenes}
         return {"types": types, "groups": static.get("groups", []), "blocks": static.get("blocks", {}),
                 "pets": static.get("pets", {}), "spawns": spawns, "weathers": static.get("weathers", {}),
-                "profile": static.get("profile", {}), "marks": drop_duplicates(mark_inactive(list(marks.values()), live, since)), "areas": scene_static.get("areas", []),
+                "profile": static.get("profile", {}), "marks": drop_duplicates(mark_picked_up(mark_inactive(list(marks.values()), live, since), interacted, standing)), "areas": scene_static.get("areas", []),
                 "fit": fit_world_to_map(live.values())}

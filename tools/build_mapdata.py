@@ -17,13 +17,28 @@ SCENE_TABLE = re.compile(r"^Scene\.(\d+)\.scene_mark_point_data$")
 AREA_LABEL_TYPES = (13, 14)   # "Area Name Display": label positions, one per small area (largeAreaId)
 EVENT_FUNC_TYPES = (27, 31)   # event and survey tracking marks
 # Types the game shows without listing them in its filter panel, and the group they belong with
-EXTRA_GROUP = {10406: 1, 10407: 1, 33: 1, 10400: 2, 10415: 3}
+EXTRA_GROUP = {10406: 1, 10407: 1, 33: 1, 10400: 2, 10415: 3, 1019: 3}
 HIDDEN_TYPES = {20}           # internal transporters clustered in one spot; the game doesn't draw them
 # Event tracking types carry internal names; use what the player sees
 TYPE_NAMES = {27: "Elite Training", 29: "Special Training", 30: "Ecological Investigation",
               31: "Aniimo Discovery", 35: "Carnival Park",
               10410: "Nurture Bloom"}   # also called "Bloom" in game, next to the teleport Blooms
 OTHER_GROUP, EVENTS_GROUP = 6, "events"
+# Aniimo eggs in the open world (Grassland Egg, Elite Egg, ...) are one-time chests placed in each map's entity
+# table, not map marks; they're drawn with the game's own egg mark ("Aniimo Egg", also used in Egg Heist)
+WORLD_EGG_TYPE = 1019
+WORLD_EGG_MODELS = ("SoulEgg", "RareEgg")   # chest models of the world eggs
+ENTITY_TABLE = re.compile(r"^Scene\.(\d+)\.scene_entity_data$")
+SANDBOX_TABLE = "Scene.{}.scene_sandbox_data"   # an entity's placement group (sandboxId): its poiType says how it appears
+# How an egg appears, by its placement group's poiType (poi_info_data); groups that are always there have no note
+EGG_NOTES = {400: "Reward for the puzzle here", 405: "Reward for the puzzle or event here",
+             504: "Reward for the puzzle here", 508: "Reward for the puzzle here",
+             2001: "Part of a quest", 4001: "Only during a limited-time event", 301: "Reward from the Branch",
+             501: "Only while its Aniimo are nesting here"}   # creature spots: the flock, nest and egg come and go together
+OTHER_LEVEL = 1003   # "other level" groups: told apart by the words in their (internal, Chinese) names
+OTHER_LEVEL_NOTES = (("流星", "Only when a meteor lands here"), ("雪", "Only in snowy weather"),
+                     ("洞穴", "In a hidden cave"))
+OTHER_LEVEL_NOTE = "Only at certain times"
 BATTLE_ICON = re.compile(r"UI_Icon_POI_Battle_(\d+)\.png$")   # Alpha / Omega: the Aniimo you fight
 SPAWN_DECIMALS = 1
 # Per-area lists of Aniimo that only appear in some weather (the badge on their portrait in game)
@@ -76,6 +91,11 @@ def build_types(pm, text):
     return types, groups
 
 
+def height(pos):
+    """A placement's height (world y, as the game's map shows it), or None."""
+    return round(pos[2]) if isinstance(pos.get(2), (int, float)) else None
+
+
 def build_scene(points, types, blocks, text):
     marks, areas = [], []
     for spawner, point in points.items():
@@ -91,7 +111,7 @@ def build_scene(points, types, blocks, text):
             continue
         if type_id in HIDDEN_TYPES or not visible(point, mark_type["row"]):
             continue
-        mark = {"id": spawner, "type": type_id, "world": world}
+        mark = {"id": spawner, "type": type_id, "world": world, "height": height(pos)}
         title = text_of(text, point.get("infoTitle"))
         if title and title != mark_type["name"]:
             mark["title"] = title
@@ -100,6 +120,39 @@ def build_scene(points, types, blocks, text):
             mark["portrait"] = f"UI_PetHead_{portrait[1]}.png"
         marks.append(mark)
     return {"marks": marks, "areas": areas}
+
+
+def egg_note(group):
+    """How an egg in this placement group appears ("Only when a meteor lands here"), or None if it's always there."""
+    poi, name = group.get("poiType"), group.get("name") or ""
+    if poi == OTHER_LEVEL:
+        return next((note for word, note in OTHER_LEVEL_NOTES if word in name), OTHER_LEVEL_NOTE)
+    return EGG_NOTES.get(poi)
+
+
+def build_world_eggs(pm, text):
+    """{scene id: [marks]} for the Aniimo eggs placed in the open world, titled with the egg's name, with a note
+    on how the ones that aren't always there appear."""
+    eggs = {chest: text_of(text, row.get("name")) for chest, row in pm.table("chest_data").items()
+            if any(model in str(row.get("model")) for model in WORLD_EGG_MODELS)}
+    found = {}
+    for name in pm.object(pm.root):
+        match = ENTITY_TABLE.match(name)
+        if not match:
+            continue
+        scene = match[1]
+        groups = None
+        for entity_id, entity in pm.table(name, depth=2).items():
+            pos = entity.get("position") or {}
+            if entity.get("idInType") in eggs and isinstance(pos.get(1), (int, float)):
+                groups = groups if groups is not None else pm.table(SANDBOX_TABLE.format(scene), depth=1)
+                mark = {"id": entity_id, "type": WORLD_EGG_TYPE, "title": eggs[entity["idInType"]],
+                        "world": [round(pos[1], 2), round(pos[3], 2)], "height": height(pos)}
+                note = egg_note(groups.get(entity.get("sandboxId")) or {})
+                if note:
+                    mark["note"] = note
+                found.setdefault(scene, []).append(mark)
+    return found
 
 
 def block_info(row, text, regions):
@@ -268,7 +321,7 @@ def build_profile(pm, text):
             "serverDayStart": servers.get("time", {}),
             "daily": build_daily_activity(pm, text), "eggs": build_eggs(pm, text),
             "branches": build_branches(pm, text), "quests": build_quests(pm, text),
-            "talents": build_talents(pm, text), "ranks": build_ranks(pm, text)}
+            "talents": build_talents(pm, text), "ranks": build_ranks(pm, text), "rarities": rarity_names(pm, text)}
 
 
 # ---- collection page (app/web/collection.json, loaded the first time the page opens) ----
@@ -297,6 +350,12 @@ VARIANT_CHANCES = {"sparkling": "shiny_rate", "umbral": "dark_rate"}   # pet_pro
 def game_string(strings, text, key):
     """A UI string by its gamestring_config_data key ("FORM" -> "Form Mode")."""
     return text_of(text, (strings.get(key) or {}).get("desc")) if key else None
+
+
+def rarity_names(pm, text):
+    """{stage: name} of the rarities (Innate Potential): 1 Common, 2 Good, 3 Elite, 4 Perfect."""
+    strings = pm.table("gamestring_config_data")
+    return {stage: game_string(strings, text, key) for stage, key in RARITY_KEYS.items()}
 
 
 def collection_icons():
@@ -346,7 +405,7 @@ def build_collection(pm, text):
             "elements": {name: {"name": text_of(text, row.get("name_ch")), "color": row.get("colourValue"),
                                 "icon": f"UI_HUD_Element_Icon_{ELEMENT_ICONS[name]}.png"}
                          for row in elements.values() for name in [row.get("name")] if name in ELEMENT_ICONS},
-            "rarities": {stage: game_string(strings, text, key) for stage, key in RARITY_KEYS.items()},
+            "rarities": rarity_names(pm, text),
             "personalities": {nature: text_of(text, row.get("name")) for nature, row in pm.table("pet_nature_data").items()},
             "personalityTitle": game_string(strings, text, "PET_INFO_PERSONALITY_TITLE")}
 
@@ -370,6 +429,8 @@ def main():
         scene = build_scene(pm.table(name, depth=2), typed, blocks, text)
         if scene["marks"] or scene["areas"]:
             scenes[match[1]] = scene
+    for scene, eggs in build_world_eggs(pm, text).items():
+        scenes.setdefault(scene, {"marks": [], "areas": []})["marks"].extend(eggs)
     used = {m["type"] for s in scenes.values() for m in s["marks"]}
     out = {"types": {t: v for t, v in types.items() if t in used or v["group"] != OTHER_GROUP},
            "groups": groups, "blocks": blocks, "pets": pets, "spawns": spawns,

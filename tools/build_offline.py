@@ -20,7 +20,7 @@ from areas import AreaStore  # noqa: E402
 from marks import MarkStore  # noqa: E402
 
 DEFAULT_OUT = os.path.join(ROOT, "docs")
-PAGE_FILES = ("app.js", "style.css", "collection.js", "collection.css", "party.js", "party.css",
+PAGE_FILES = ("app.js", "style.css", "collection.js", "collection.css", "party.js", "party.css", "wild.js",
               "maps.json", "collection.json")
 FOLDERS = ("icons", "tiles", "areas")
 OFFLINE_FLAG = "<script>window.OFFLINE_MAP = true;</script>"   # read by app.js before anything loads
