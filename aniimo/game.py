@@ -259,7 +259,9 @@ class GameReader:
     def _fast_loop(self):
         while not self._stop.is_set():
             try:
-                if self.proc and self.entity and not self.need_player:
+                # Keeps reading the current player while a new search runs: a frozen-position search often
+                # finds the same one (the minimap can move while you stand still, e.g. in a fight)
+                if self.proc and self.entity:
                     self._tick()
             except Exception as e:
                 log.warning("fast loop: %s", e)
