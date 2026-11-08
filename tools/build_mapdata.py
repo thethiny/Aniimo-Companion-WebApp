@@ -17,7 +17,7 @@ SCENE_TABLE = re.compile(r"^Scene\.(\d+)\.scene_mark_point_data$")
 AREA_LABEL_TYPES = (13, 14)   # "Area Name Display": label positions, one per small area (largeAreaId)
 EVENT_FUNC_TYPES = (27, 31)   # event and survey tracking marks
 # Types the game shows without listing them in its filter panel, and the group they belong with
-EXTRA_GROUP = {10406: 1, 10407: 1, 33: 1, 10400: 2, 10415: 3, 1019: 3, 900001: 3}   # 900001: Pickups
+EXTRA_GROUP = {10406: 1, 10407: 1, 33: 1, 10400: 2, 10415: 3, 1019: 3, 900001: 3, 900002: 3, 900003: 3}   # 9000xx: the page's own
 HIDDEN_TYPES = {20}           # internal transporters clustered in one spot; the game doesn't draw them
 # Event tracking types carry internal names; use what the player sees
 TYPE_NAMES = {27: "Elite Training", 29: "Special Training", 30: "Ecological Investigation",
@@ -27,6 +27,9 @@ OTHER_GROUP, EVENTS_GROUP = 6, "events"
 # Aniimo eggs in the open world (Grassland Egg, Elite Egg, ...) are one-time chests placed in each map's entity
 # table, not map marks; they're drawn with the game's own egg mark ("Aniimo Egg", also used in Egg Heist)
 WORLD_EGG_TYPE = 1019
+# Eggs that aren't guaranteed (only sometimes, after a meteor, from the Branch) get a filter of their own
+EVENT_EGG_TYPE = 900003   # the page's own type
+EVENT_EGG_NAME = "Event Aniimo Egg"
 EGG_LOG_TYPE = 103   # chest_data chestLogtype of every Aniimo egg (Grassland, Incredible, Alpha, Wonder...)
 ENTITY_TABLE = re.compile(r"^Scene\.(\d+)\.scene_entity_data$")
 # An entity's own spawner (spawnerId) and the one of what it sits on (attachToSpawnerId, e.g. its nest): their
@@ -46,6 +49,12 @@ OPEN_CHEST = "OPEN_CHEST_BY_STATICID"
 # Small pickups placed in each map's entity table (not map marks), all under one "Pickups" filter button with an
 # icon per kind. Told apart by their model; the kinds without an item icon in game use the page's own icons.
 PICKUP_TYPE = 900001   # not a game mark type: the page's own
+# Blessed Aniimo placed in the world: each sits in a small encounter of its own with the one Lumin Amber it
+# drops when you catch it ("amber": that amber's placement, so the server can tell it's done)
+BLESSED_TYPE = 900002  # the page's own too
+BLESSED_NAME = "Blessed Aniimo"
+BLESSED_ICON = "UI_Icon_MarkPoint_MythicalAnimals.png"   # the game's Lumin Amber mark
+AMBER_LOG_TYPE = 108   # chest_data chestLogtype of a Lumin Amber
 PICKUP_NAME = "Pickups"
 PICKUP_KINDS = (       # (kind, name, model fragments, icon)
     ("aniipod", "Aniipod", ("NormalBallChest", "NormalBall_EnvObj"), "ui_item_110001.png"),
@@ -206,8 +215,8 @@ def build_world_eggs(pm, text):
             spawners[scene] = pm.table(SPAWNER_TABLE.format(scene), depth=1)
             groups[scene] = pm.table(SANDBOX_TABLE.format(scene), depth=1)
         own, base = (spawners[scene].get(entity.get(key)) for key in ("spawnerId", "attachToSpawnerId"))
-        mark = placed_mark(entity_id, entity, WORLD_EGG_TYPE, title=eggs[entity["idInType"]])
         note = egg_note((own, base), groups[scene].get((own or base or {}).get("sandboxId") or entity.get("sandboxId")) or {})
+        mark = placed_mark(entity_id, entity, EVENT_EGG_TYPE if note else WORLD_EGG_TYPE, title=eggs[entity["idInType"]])
         if note:
             mark["note"] = note
         need = needs.get(entity.get("staticId") or entity_id)
@@ -221,6 +230,46 @@ def pickup_type():
     """The "Pickups" mark type: its filter button shows the first kind's icon; marks carry their kind."""
     return {"name": PICKUP_NAME, "icon": PICKUP_KINDS[0][3], "group": EXTRA_GROUP[PICKUP_TYPE],
             "kinds": {kind: {"name": name, "icon": icon} for kind, name, _, icon in PICKUP_KINDS}}
+
+
+def event_egg_type(types):
+    """The "Event Aniimo Egg" type: the game's egg mark icon, under Collection."""
+    return {"name": EVENT_EGG_NAME, "icon": types[WORLD_EGG_TYPE]["icon"], "group": EXTRA_GROUP[EVENT_EGG_TYPE]}
+
+
+def blessed_type():
+    return {"name": BLESSED_NAME, "icon": BLESSED_ICON, "group": EXTRA_GROUP[BLESSED_TYPE]}
+
+
+def build_blessed(pm, text):
+    """{scene id: [marks]} for the Blessed Aniimo placed in the world, titled with their name, drawn with their
+    species' portrait (form) and carrying the Lumin Amber of their encounter (amber)."""
+    puppets = {k: row for k, row in pm.table("puppet_data").items()
+               if (text_of(text, row.get("name")) or "").startswith(BLESSED_TAG["name"] + " ")}
+    ambers = {k for k, row in pm.table("chest_data").items() if row.get("chestLogtype") == AMBER_LOG_TYPE}
+    species = blessed_forms(pm)
+    found, spawners, groups = {}, {}, {}
+
+    def box_of(scene, e):   # an entity's encounter: its spawner's sandbox
+        return (spawners[scene].get(e.get("spawnerId") or e.get("attachToSpawnerId")) or {}).get("sandboxId")
+
+    for scene, entity_id, entity in placed(pm, lambda template: template in puppets):
+        if scene not in groups:   # the ambers of each encounter
+            spawners[scene], groups[scene] = pm.table(SPAWNER_TABLE.format(scene), depth=1), {}
+            for amber_id, amber in pm.table(f"Scene.{scene}.scene_entity_data", depth=1).items():
+                if amber.get("idInType") in ambers:
+                    groups[scene].setdefault(box_of(scene, amber), amber.get("staticId") or amber_id)
+        row = puppets[entity["idInType"]]
+        form = row.get("petPrototypeId")
+        icon = str(row.get("iconName") or "")   # the species number ("10161"), when the form isn't a known one
+        form = species.get(form) or (int(icon) * 100 if icon.isdigit() and len(icon) == 5 else form)
+        mark = placed_mark(entity_id, entity, BLESSED_TYPE, title=text_of(text, row["name"]), form=form,
+                           note="Part of an encounter here")
+        amber = groups[scene].get(box_of(scene, entity))
+        if amber:
+            mark["amber"] = amber
+        found.setdefault(scene, []).append(mark)
+    return found
 
 
 def build_pickups(pm):
@@ -262,9 +311,23 @@ def build_pets(pm, text, wanted):
     return pets
 
 
+def all_forms(pm):
+    """Every Aniimo form (pet_data's 7-digit ids; longer ones are special copies for events and tests)."""
+    return {proto for proto in pm.table("pet_data", depth=0) if isinstance(proto, int) and 1000000 <= proto < 10000000}
+
+
 def prismana_forms(pm):
     """Every Prismana form (they spawn as their own forms, so wild ones are told apart by their form)."""
     return {proto for proto, row in pm.table("pet_prototype_data", depth=0).items() if row.get("formId") == PRISMANA_FORM}
+
+
+def blessed_forms(pm):
+    """{Blessed form: its species' base form}, so a wild Blessed Aniimo shows as its species."""
+    protos = pm.table("pet_prototype_data", depth=0)
+    base = lambda res: res if res >= 1000000 else res * 100   # resId: the species (10351) or its base form already
+    return {form: base(row["resId"]) for form, row in protos.items()
+            if BLESSED_MODEL in str(row.get("prefabResID")) and isinstance(row.get("resId"), int)
+            and base(row["resId"]) in protos}
 
 
 def tag_names(pm, text):
@@ -399,12 +462,59 @@ def build_ranks(pm, text):
     return ranks
 
 
+# Party members' cards: friendship tiers, the explore abilities a player equips, Collection Progress
+EXPLORE_ABILITIES = range(9200000, 9300000)   # ability_param_data ids of the player's own explore abilities
+COLLECT_FIELDS = {"caughtNum": "caught", "shinyCaughtNum": "sparkling", "rainbowCaughtNum": "prismana",
+                  "fashionScore": "style"}   # player_collect_data variable -> the name aniimo/friends.py sends
+
+
+def friendship_tiers(pm, text):
+    """[{name, min, max, icon}] from New Friend to Soulmate (affinity ranges)."""
+    return [{"name": text_of(text, row.get("friendshipName")), "min": row["friendshipRange"][1],
+             "max": row["friendshipRange"][2], "icon": icon_name(row.get("levelIconOnly"))}
+            for _, row in sorted(pm.table("friendship_level_data", depth=2).items())]
+
+
+def explore_abilities(pm, text):
+    """{ability id: {name, icon}} of the explore abilities a player can equip."""
+    return {ability: {"name": text_of(text, row.get("name")), "icon": icon_name(row.get("icon"))}
+            for ability, row in pm.table("ability_param_data").items()
+            if ability in EXPLORE_ABILITIES and row.get("name") and row.get("icon")}
+
+
+def collect_stats(pm, text):
+    """[{key, name, icon}] of Collection Progress on a player's card, in the game's order."""
+    return [{"key": COLLECT_FIELDS[row["variable"]], "name": text_of(text, row.get("name")), "icon": icon_name(row.get("res"))}
+            for _, row in sorted(pm.table("player_collect_data").items()) if row.get("variable") in COLLECT_FIELDS]
+
+
+def place_names(pm, text):
+    """{scene id: name} of every place (homes, instances, matches...), for the ones the page has no map of:
+    the scene's own name, else its level's ("Fair Match")."""
+    levels = pm.table("level_data", depth=0)
+    names = {}
+    for scene, row in pm.table("scene_data", depth=0).items():
+        name = text_of(text, row.get("sceneName")) or text_of(text, (levels.get(scene) or {}).get("name"))
+        if name:
+            names[scene] = name
+    return names
+
+
+def profile_pictures(pm):
+    """({picture id: icon}, {frame id: icon}) for profile pictures and frames. Animated frames are prefabs,
+    not pictures: they show their unlock item's icon instead."""
+    items = pm.table("item_data", depth=0)
+    heads = {i: icon_name(row.get("res")) for i, row in pm.table("player_head_icon_data").items()}
+    frames = {i: icon_name(row.get("res")) or icon_name((items.get(row.get("item")) or {}).get("icon"))
+              for i, row in pm.table("player_head_frame_data").items()}
+    return heads, frames
+
+
 def build_profile(pm, text):
     """What the player profile needs besides your live data: picture and frame files by id, the XP to reach
     each level (from the one before), Primegy's name, icon and recovery, and per server region a moment its day
     starts (the daily reset)."""
-    heads = {i: icon_name(row.get("res")) for i, row in pm.table("player_head_icon_data").items()}
-    frames = {i: icon_name(row.get("res")) for i, row in pm.table("player_head_frame_data").items()}
+    heads, frames = profile_pictures(pm)
     item = pm.table("item_data", depth=0).get(PRIMEGY) or {}
     recovery = pm.table("currency_auto_change_data", depth=2).get(PRIMEGY) or {}
     servers = pm.table("open_server_time_data", depth=2).get(OFFICIAL_SERVERS) or {}
@@ -418,7 +528,9 @@ def build_profile(pm, text):
             "daily": build_daily_activity(pm, text), "eggs": build_eggs(pm, text),
             "branches": build_branches(pm, text), "quests": build_quests(pm, text),
             "talents": build_talents(pm, text), "ranks": build_ranks(pm, text), "rarities": rarity_names(pm, text),
-            "tags": tag_names(pm, text)}
+            "tags": dict(tag_names(pm, text), blessed=BLESSED_TAG), "blessed": blessed_forms(pm),
+            "friendship": friendship_tiers(pm, text), "abilities": explore_abilities(pm, text),
+            "collectStats": collect_stats(pm, text), "places": place_names(pm, text)}
 
 
 # ---- collection page (app/web/collection.json, loaded the first time the page opens) ----
@@ -441,6 +553,10 @@ COUNTERS = {"owned": ("PETMANUAL_COUNT_TXT_1", "UI_Img_PetReport_CatchQuantity.p
             "collection": ("PETMANUAL_COUNT_TXT_5", None)}
 MODE_KEYS = {"form": "FORM", "family": "SPECIES"}
 PRISMANA_FORM = 5              # pet_form_type_data id of "Prismana Form"
+# Blessed Aniimo (charged with Vein energy, they drop Lumin Amber while you catch them) spawn as forms of their
+# own, on the crystal body model; resId is the species (its base form is resId * 100)
+BLESSED_MODEL = "CrystalTemp"
+BLESSED_TAG = {"name": "Blessed", "desc": None, "icon": None}
 VARIANT_CHANCES = {"sparkling": "shiny_rate", "umbral": "dark_rate"}   # pet_prototype_data chance per variant
 
 
@@ -514,7 +630,9 @@ def main():
     spawns = build_spawns(pm)
     weathers = {weather_id: {"name": text_of(text, row.get("name")), "icon": icon_name(row.get("icon"))}
                 for weather_id, row in pm.table("weather_data").items()}
-    pets = build_pets(pm, text, {p for b in blocks.values() for p in b["pets"]} | set(spawns) | prismana_forms(pm))
+    # Every Aniimo form: party members' teams and companions can be any, not only the ones spawning on a map
+    pets = build_pets(pm, text, {p for b in blocks.values() for p in b["pets"]} | set(spawns) | prismana_forms(pm)
+                      | set(blessed_forms(pm).values()) | all_forms(pm))
     scenes = {}
     for name in pm.object(pm.root):
         match = SCENE_TABLE.match(name)
@@ -524,8 +642,8 @@ def main():
         scene = build_scene(pm.table(name, depth=2), typed, blocks, text)
         if scene["marks"] or scene["areas"]:
             scenes[match[1]] = scene
-    types[PICKUP_TYPE] = pickup_type()
-    for found in (build_world_eggs(pm, text), build_pickups(pm)):
+    types[PICKUP_TYPE], types[BLESSED_TYPE], types[EVENT_EGG_TYPE] = pickup_type(), blessed_type(), event_egg_type(types)
+    for found in (build_world_eggs(pm, text), build_pickups(pm), build_blessed(pm, text)):
         for scene, marks in found.items():
             scenes.setdefault(scene, {"marks": [], "areas": []})["marks"].extend(marks)
     used = {m["type"] for s in scenes.values() for m in s["marks"]}

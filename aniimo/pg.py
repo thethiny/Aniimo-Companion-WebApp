@@ -31,6 +31,17 @@ def _still_valid(proc, found):
 _where = lua.Located(_locate, _still_valid, max_age=float("inf"))
 
 
+def known():
+    """Whether pg is found, without searching for it (the search takes about 30 s)."""
+    return _where.known()
+
+
+def forget():
+    """Search for pg again: joining another world (a friend's) builds a new one, and the old one still
+    looks like pg."""
+    _where.forget()
+
+
 def fields(proc):
     """pg's own fields, or {} while it isn't found."""
     found = _where.get(proc)

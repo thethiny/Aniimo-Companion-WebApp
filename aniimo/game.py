@@ -15,7 +15,7 @@ import struct
 import threading
 import time
 
-from . import pg
+from . import entities, pg
 from .memory import Il2Cpp, Process, find_pid, is_pointer
 from .minimap import MinimapReader
 from .route import RouteReader
@@ -35,6 +35,15 @@ LOST_GRACE_SECONDS = 15.0     # keep the same player through loading screens bef
 FROZEN_SECONDS = 3.0          # minimap moving but our position not: the player object went stale
 FROZEN_REFIND_SECONDS = 30.0  # at most one frozen-triggered search this often
 TELEPORT_DISTANCE = 300.0     # a jump this big means a teleport or a scene change
+TELEPORT_REFIND_SECONDS = 10.0  # after a teleport, search again once the new world is loaded: joining a
+                                # friend's world builds a new player, and the old one still reads
+# Every so often, a player in the game's Lua state (pg) must stand where we read you: if none does, we're
+# reading a stale copy (of you or of pg, e.g. after joining a friend's world). First search for you again,
+# then, still off, for pg too
+PG_CHECK_SECONDS = 10.0
+PG_NEAR = 50.0                # metres
+PG_SETTLE_SECONDS = 20.0      # no check this soon after a teleport (the new world still loading)
+PG_FORGET_SECONDS = 120.0     # at most one new search for pg this often
 SCENE_RECHECK_SECONDS = 60.0
 MINIMAP_LOCATE_SECONDS = 30.0
 MOVE_EPSILON = 0.3            # metres between polls that count as moving
@@ -66,6 +75,9 @@ class GameReader:
         self._last_scene_check = self._last_minimap_locate = self._last_refind = -1e9
         self._minimap_search = None
         self._lua_scene_ok = False
+        self._refind_at = None
+        self._last_teleport = self._last_pg_check = self._last_pg_forget = -1e9
+        self._pg_strikes = 0
 
     # ---- lifecycle ----
 
@@ -124,8 +136,13 @@ class GameReader:
                     self._attach()
                     continue
                 now = time.time()
+                if self._refind_at and now >= self._refind_at:
+                    log.info("searching again after the teleport")
+                    self._refind_at, self.need_player = None, True
                 if self.need_player:
                     self._find_player()
+                elif now - self._last_pg_check >= PG_CHECK_SECONDS and now - self._last_teleport >= PG_SETTLE_SECONDS:
+                    self._check_pg(now)
                 if not self._lua_scene_ok and (self.need_scene or now - self._last_scene_check >= SCENE_RECHECK_SECONDS):
                     self._check_scene()
                 self.route = self.route_reader.read(now) if self.route_reader else None
@@ -191,6 +208,27 @@ class GameReader:
         self.need_player = False
         self._last_ok = self._last_moved = self._map_last_moved = time.time()
         log.info("player entity %#x (%d candidate(s))", self.entity, len(found))
+
+    def _check_pg(self, now):
+        """Whether a player in pg stands where we read you; if not, search for you, then for pg, again."""
+        self._last_pg_check = now
+        state = self.snapshot()
+        pos = state.get("pos") if state.get("status") == "ok" else None
+        if not pos or not pg.known() or not pg.fields(self.proc):   # the collectors search for pg, not this loop
+            return
+        players = [entities.pose(self.proc, e) for e in entities.loaded(self.proc, str.isdigit).values()
+                   if entities.sub(self.proc, e, "__Properties__").get("clenUsrType") == entities.KIND_PLAYER]
+        if any(p and math.dist((p["x"], p["z"]), (pos["x"], pos["z"])) < PG_NEAR for p in players):
+            self._pg_strikes = 0
+            return
+        self._pg_strikes += 1
+        if self._pg_strikes == 1:
+            log.info("no player in the game's Lua state where we read you: searching for you again")
+            self.need_player = True
+        elif now - self._last_pg_forget >= PG_FORGET_SECONDS:
+            log.info("still no player in the game's Lua state where we read you: searching for it again")
+            self._pg_strikes, self._last_pg_forget = 0, now
+            pg.forget()
 
     def _locate_minimap(self):
         """Searches for the minimap on a thread of its own: the search takes minutes on maps where the
@@ -293,6 +331,7 @@ class GameReader:
         if self._last_pos and math.dist(self._last_pos, (x, z)) > TELEPORT_DISTANCE:
             log.info("teleport (%.0f m)", math.dist(self._last_pos, (x, z)))
             self.need_scene = True
+            self._last_teleport, self._refind_at = now, now + TELEPORT_REFIND_SECONDS
         # Minimap still moving while our position is frozen: we are reading a stale object
         if (now - self._map_last_moved < 1.0 and now - self._last_moved > FROZEN_SECONDS
                 and now - self._last_refind > FROZEN_REFIND_SECONDS):

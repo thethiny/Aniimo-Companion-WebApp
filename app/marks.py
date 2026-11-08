@@ -25,7 +25,8 @@ SAME_SPOT = 15.0                # metres
 ROTATING_TYPES = {31, 121}      # Aniimo Discovery, Vein Abundance
 # One-time pickups: done once their id is in what you've picked up (interactRecord). The big map never lists
 # eggs or chests, and its Lumin Amber status can be older than your pickups
-PICKUP_TYPES = {1019, 10506, 10505, 900001}   # world Aniimo eggs, chests, Lumin Amber, Pickups (the page's own type)
+PICKUP_TYPES = {1019, 10506, 10505, 900001, 900002, 900003}   # world Aniimo eggs, chests, Lumin Amber; the page's
+                                    # own Pickups, Blessed Aniimo (done with their "amber") and Event Aniimo Eggs
 STATUS_DONE = 3                 # markStatus of a completed mark, as the page draws it
 DAY = 86400
 
@@ -85,7 +86,7 @@ def mark_picked_up(marks, interacted, standing):
     unopened pickups loaded around you; some chests come back)."""
     done = set(interacted or ()) - set(standing or ())
     for m in marks:
-        if m.get("type") in PICKUP_TYPES and int(m["id"]) in done:
+        if m.get("type") in PICKUP_TYPES and (int(m["id"]) in done or m.get("amber") in done):
             m["status"] = STATUS_DONE
     return marks
 

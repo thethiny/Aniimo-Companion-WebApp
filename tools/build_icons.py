@@ -11,9 +11,10 @@ import re
 import UnityPy
 from PIL import Image
 
-from build_mapdata import PICKUP_ICONS, PRIMEGY, SKILL_POINT, collection_icons, icon_name
+from build_mapdata import (PICKUP_ICONS, PRIMEGY, SKILL_POINT, collect_stats, collection_icons, explore_abilities,
+                           friendship_tiers, icon_name, profile_pictures)
 from game import BUNDLES, MANIFESTS  # noqa: E402  (found through the running game)
-from pmdata import PmData
+from pmdata import PmData, Text
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "web", "icons")
 ICON_FOLDERS = ("/Texture/Icon/Map_MarkPoint/", "/Texture/Image/Pet_head/", "/Texture/Icon/Weather/",
                 "/Texture/Icon/Player_head/", "/Texture/Image/Head_Frame/", "/Texture/Icon/Personal/")
@@ -49,8 +50,12 @@ def config_icons():
     items = pm.table("item_data", depth=0)
     ambers = {levels.get("0", levels.get(0, {})).get("stoneId") for levels in pm.table("leylinetree_data", depth=2).values()}
     wanted = {PRIMEGY, SKILL_POINT} | set(pm.table("pet_hatch_egg_data")) | ambers
-    names = (icon_name((items.get(item) or {}).get("icon")) for item in wanted)
-    return {os.path.splitext(name)[0] for name in list(names) + PICKUP_ICONS if name}
+    names = [icon_name((items.get(item) or {}).get("icon")) for item in wanted]
+    text = Text()   # party cards: friendship tiers, explore abilities, Collection Progress
+    names += [row["icon"] for row in friendship_tiers(pm, text) + collect_stats(pm, text)]
+    names += [row["icon"] for row in explore_abilities(pm, text).values()]
+    names += [icon for pictures in profile_pictures(pm) for icon in pictures.values()]   # profile pictures, frames
+    return {os.path.splitext(name)[0] for name in names + PICKUP_ICONS if name}
 
 
 def bundle_priority(name):

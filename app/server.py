@@ -12,7 +12,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from aniimo import areas, collection, handbook, marks, party, pickups, profile, quests, weather, wild  # noqa: E402
+from aniimo import areas, collection, friends, handbook, marks, party, pickups, profile, quests, weather, wild  # noqa: E402
 from aniimo.game import GameReader  # noqa: E402
 from areas import AreaStore  # noqa: E402
 from calibration import Calibration  # noqa: E402
@@ -40,13 +40,23 @@ PARTY_SECONDS = 1
 WILD_LANE = "nearby"     # what is loaded around you (wild Aniimo every second, pickups), on a lane of its own
 WILD_SECONDS = 1
 PICKUPS_SECONDS = 5      # unopened chests and pickups near you (they can come back after you've opened them)
+FRIENDS_LANE = "friends"  # friends' affinity: a heap search (several seconds), on a lane of its own
+FRIENDS_SECONDS = 60
 area_store = AreaStore()
 mark_store = MarkStore()
 live = {"handbook": LiveStore("handbook", "states", keep=("blockCaught",)), "weather": LiveStore("weather", "weather"),
         "profile": LiveStore("profile", "name", keep=("eggs", "daily", "interacted")),   # known once their screen was opened
         "quests": LiveStore("quests", "tracked"), "collection": LiveStore("collection", "owned"),
         "party": LiveStore("party", "inGame", persist=False), "wild": LiveStore("wild", "inGame", persist=False),
-        "pickups": LiveStore("pickups", "inGame", persist=False)}
+        "pickups": LiveStore("pickups", "inGame", persist=False), "friends": LiveStore("friends", "friends")}
+
+
+def merge_friends(scene, found):
+    """Friends seen before stay: the game only holds the cards opened lately."""
+    known = live["friends"].get().get("friends") or {}
+    live["friends"].merge(scene, {"friends": dict(known, **(found.get("friends") or {}))})
+
+
 reader = GameReader(collectors=[
     ("handbook", HANDBOOK_SECONDS, handbook.collect, live["handbook"].merge, LIVE_LANE),
     ("weather", WEATHER_SECONDS, weather.collect, live["weather"].merge, LIVE_LANE),
@@ -56,6 +66,7 @@ reader = GameReader(collectors=[
     ("party", PARTY_SECONDS, party.collect, live["party"].merge, PARTY_LANE),
     ("wild", WILD_SECONDS, wild.collect, live["wild"].merge, WILD_LANE),
     ("pickups", PICKUPS_SECONDS, pickups.collect, live["pickups"].merge, WILD_LANE),
+    ("friends", FRIENDS_SECONDS, friends.collect, merge_friends, FRIENDS_LANE),
     ("old copies", COPIES_SECONDS, handbook.find_copies, lambda scene, found: None, COPIES_LANE),
     ("area names", COLLECT_SECONDS, areas.collect, area_store.merge),
     ("marks", COLLECT_SECONDS, marks.collect, lambda scene, found: mark_store.merge(found)),
@@ -129,7 +140,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/areas":
             scene = (reader.snapshot().get("scene") or {}).get("mapId")
             return self._json(area_store.get(scene) if scene else {})
-        if path.startswith("/api/") and path[5:] in live:   # /api/handbook, /api/weather, /api/profile, /api/quests, /api/collection, /api/party, /api/wild
+        if path.startswith("/api/") and path[5:] in live:   # /api/handbook, /api/weather, /api/profile, /api/quests, /api/collection, /api/party, /api/wild, /api/friends
             return self._json(live[path[5:]].get())
         if path == "/api/marks":
             scene = (reader.snapshot().get("scene") or {}).get("mapId")
@@ -173,6 +184,13 @@ def open_window(port):
     webview.start()   # blocks until the window closes
 
 
+class Server(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        """A page closed or reloaded mid-download is normal: no traceback for it."""
+        if not isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+            super().handle_error(request, client_address)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8777)
@@ -180,7 +198,7 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     reader.start()
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
+    server = Server(("0.0.0.0", args.port), Handler)
     for ip in lan_addresses():
         print(f"Map: http://{ip}:{args.port}/")
     try:

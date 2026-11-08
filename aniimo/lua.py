@@ -183,6 +183,15 @@ class Located:
                 self.found, self.pid, self.at = self.locate(proc), proc.pid, time.time()
             return self.found
 
+    def known(self):
+        """Whether something is found (without searching)."""
+        return self.found is not None
+
+    def forget(self):
+        """Search again on the next get (what was found went stale without failing `valid`)."""
+        with self.lock:
+            self.found = None
+
 
 def tables_with_key(proc, gcstrs):
     """Node addresses (and owning node-array guesses) whose key is one of the given GCstr addresses."""
