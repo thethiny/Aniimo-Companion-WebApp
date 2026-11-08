@@ -537,7 +537,7 @@ function iconFor(mark) {
 
 function markClasses(mark) {
   return ["mark", BIG_TYPES.has(mark.type) ? "big" : "", mark.status === STATUS_LOCKED ? "locked" : "",
-    mark.status === STATUS_DONE ? "done" : ""].join(" ");
+    mark.status === STATUS_DONE ? "done" : "", mark.inactive ? "inactive" : ""].join(" ");
 }
 
 // 44 x 44 box: diamond (22,11)-(37,26)-(22,41)-(7,26), horns rising from its upper edges
@@ -562,7 +562,8 @@ function markIcon(mark) {
 
 function markTooltip(mark) {
   const type = typeOf(mark).name || "Mark";
-  const status = mark.status === STATUS_LOCKED ? "locked" : mark.status === STATUS_DONE ? "completed" : "";
+  const status = mark.status === STATUS_LOCKED ? "locked" : mark.status === STATUS_DONE ? "completed"
+    : mark.inactive ? "not active today" : "";
   const where = mark.world ? `${mark.world[0].toFixed(0)}, ${mark.world[1].toFixed(0)}` : "";
   const head = mark.title ? `<b>${mark.title}</b> · ${type}` : `<b>${type}</b>`;
   return [head, status, where].filter(Boolean).join(" · ");
@@ -589,9 +590,9 @@ function areaLabelHtml(area) {
 }
 
 // The game scales Breezy Plains' level ranges with your star title (formula DYNAMIC_LV_CALC_FUNC6):
-// shown = max(L, round(0.2 L + 0.8 T)) + 1. T per star title is measured from the game's own labels;
-// unmeasured star titles show the base ranges.
-const LEVEL_SCALING = { region: 300001, weight: 0.2, targetByStarTitle: { 7: 49 } };
+// shown = max(L, round(w L + (1 - w) T)) + 1. w and T per star title are fitted to the game's own labels
+// (star title 8 matches every Breezy Plains label exactly); unmeasured star titles show the base ranges.
+const LEVEL_SCALING = { region: 300001, weight: 0.18, targetByStarTitle: { 7: 49, 8: 54 } };
 
 function shownLevel(block, level) {
   const target = LEVEL_SCALING.targetByStarTitle[handbook.starTitle];

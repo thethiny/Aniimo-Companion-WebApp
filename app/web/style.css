@@ -285,6 +285,7 @@ button.icon.done svg { stroke: var(--ok); }
 .boss .frame .horns { fill: #fff; stroke-width: 1.2; }
 .mark:has(.boss).done::after { right: 8%; bottom: 0; }
 .mark.locked { opacity: .55; filter: grayscale(.8); }
+.mark.inactive { opacity: .4; filter: grayscale(1); }   /* Vein Abundance / Aniimo Discovery not active today */
 .mark.done::after {
   content: "\2713"; position: absolute; right: -4px; bottom: -4px; width: 13px; height: 13px; border-radius: 50%;
   background: var(--ok); color: #06240f; font-size: 10px; font-weight: 800; line-height: 13px; text-align: center;

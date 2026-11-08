@@ -7,6 +7,7 @@ import os
 import socket
 import sys
 import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -16,7 +17,7 @@ from aniimo.game import GameReader  # noqa: E402
 from areas import AreaStore  # noqa: E402
 from calibration import Calibration  # noqa: E402
 from live import LiveStore  # noqa: E402
-from marks import MarkStore  # noqa: E402
+from marks import MarkStore, day_start  # noqa: E402
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 # Sites allowed to read this server's live data from the browser ("Connect to game" on the offline map).
@@ -54,6 +55,15 @@ reader = GameReader(collectors=[
     ("marks", COLLECT_SECONDS, marks.collect, lambda scene, found: mark_store.merge(found)),
 ])
 calibration = Calibration()
+
+
+def today_start():
+    """Your server's latest daily reset (epoch seconds): from the last one it ran (live), else from its region's
+    day start in the config; None until your profile has been read."""
+    profile = live["profile"].get()
+    start = profile.get("dayReset") or (
+        (mark_store.static.get().get("profile") or {}).get("serverDayStart", {}).get(str(profile.get("serverArea"))))
+    return day_start(start, time.time()) if start else None
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -117,7 +127,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(live[path[5:]].get())
         if path == "/api/marks":
             scene = (reader.snapshot().get("scene") or {}).get("mapId")
-            return self._json(mark_store.get(scene) if scene else {"marks": [], "types": {}, "groups": []})
+            return self._json(mark_store.get(scene, today_start()) if scene else {"marks": [], "types": {}, "groups": []})
         return super().do_GET()
 
     def do_POST(self):

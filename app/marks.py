@@ -7,8 +7,10 @@ import os
 import threading
 import time
 
+from paths import DATA
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-PATH = os.path.join(HERE, "data", "marks.json")
+PATH = os.path.join(DATA, "marks.json")
 MAPDATA = os.path.join(HERE, "web", "mapdata.json")
 LIVE_FIELDS = {"markStatus": "status", "markLevel": "level", "markIconIndex": "iconIndex",
                "map": "map"}   # live record field -> field sent to the page
@@ -17,6 +19,11 @@ FIT_MAX_ERROR = 4.0      # map pixels; live records with a worse fit (stale or b
 # The config places some Alpha / Omega Aniimo twice, a few metres apart; the game draws one of them
 SINGLE_TYPES = {10404, 10304}   # Alpha, Omega
 SAME_SPOT = 15.0                # metres
+# The config lists every place these can appear; only a few are active each day (often none), and the game's
+# big map builds records for the active ones only. Once the big map has been read on a scene today, the
+# places it didn't show today are sent with "inactive" (drawn faded); before that, none are.
+ROTATING_TYPES = {31, 121}      # Aniimo Discovery, Vein Abundance
+DAY = 86400
 
 
 def fit_axis(pairs):
@@ -64,6 +71,22 @@ def drop_duplicates(marks):
     return sorted(kept, key=lambda m: order[id(m)])
 
 
+def day_start(start, now):
+    """The latest daily reset at or before now, from any earlier one (`start`)."""
+    return start + math.floor((now - start) / DAY) * DAY
+
+
+def mark_inactive(marks, live, since):
+    """Flags ROTATING_TYPES marks no live read has shown since `since` (today's reset) as "inactive", once
+    any read of the scene's big map has happened since then."""
+    today = {k for k, r in live.items() if since is not None and r.get("seen", 0) >= since}
+    if today:
+        for m in marks:
+            if m.get("type") in ROTATING_TYPES and str(m["id"]) not in today:
+                m["inactive"] = True
+    return marks
+
+
 class StaticMapData:
     """web/mapdata.json, reloaded when the build tool rewrites it."""
 
@@ -100,8 +123,8 @@ class MarkStore:
             json.dump({"scenes": self.scenes, "configIcons": self.config_icons},
                       open(self.path, "w", encoding="utf-8"), ensure_ascii=False)
 
-    def get(self, scene):
-        """Everything the page needs to draw a scene's marks and area labels."""
+    def get(self, scene, since=None):
+        """Everything the page needs to draw a scene's marks and area labels. `since`: today's daily reset."""
         static = self.static.get()
         types = static.get("types", {})
         scene_static = static.get("scenes", {}).get(str(scene), {})
@@ -117,5 +140,5 @@ class MarkStore:
         spawns = {proto: scenes[str(scene)] for proto, scenes in static.get("spawns", {}).items() if str(scene) in scenes}
         return {"types": types, "groups": static.get("groups", []), "blocks": static.get("blocks", {}),
                 "pets": static.get("pets", {}), "spawns": spawns, "weathers": static.get("weathers", {}),
-                "profile": static.get("profile", {}), "marks": drop_duplicates(list(marks.values())), "areas": scene_static.get("areas", []),
+                "profile": static.get("profile", {}), "marks": drop_duplicates(mark_inactive(list(marks.values()), live, since)), "areas": scene_static.get("areas", []),
                 "fit": fit_world_to_map(live.values())}
